@@ -1037,6 +1037,35 @@ Expression TaylorExpand(const Expression& f, const Environment& a,
   return factory.GetExpression();
 }
 
+Expression TaylorExpand(const Expression& f, const Environment& a,
+                        const int order, bool in_error_coordinates=false) {
+  // The implementation uses the formulation:
+  //      Taylor(f, a, order) = ∑_{|α| ≤ order} ∂fᵅ(a) / α! * (x - a)ᵅ.
+  DRAKE_DEMAND(order >= 1);
+  ExpressionAddFactory factory;
+  factory.AddExpression(f.EvaluatePartial(a));
+  const int num_vars = a.size();
+  if (num_vars == 0) {
+    return f;
+  }
+  vector<Expression> terms;  // (x - a)
+  for (const pair<const Variable, double>& p : a) {
+    const Variable& var = p.first;
+    if(in_error_coordinates){
+      const double v = p.second;
+      terms.push_back(var - v);
+    }else
+      {
+        terms.push_back(var);
+      }
+      
+  }
+  for (int i = 1; i <= order; ++i) {
+    DoTaylorExpand(f, a, terms, i, num_vars, &factory);
+  }
+  return factory.GetExpression();
+}
+
 Variables GetDistinctVariables(const Eigen::Ref<const MatrixX<Expression>>& v) {
   Variables vars{};
   // Note: Default storage order for Eigen is column-major.

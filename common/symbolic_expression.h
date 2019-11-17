@@ -1412,6 +1412,9 @@ MatrixX<Expression> Jacobian(const Eigen::Ref<const VectorX<Expression>>& f,
 ///                  resulting polynomial approximating `f` around `a`.
 Expression TaylorExpand(const Expression& f, const Environment& a, int order);
 
+Expression TaylorExpand(const Expression& f, const Environment& a, int order,
+                        bool in_error_coordinates);
+
 /// Returns the distinct variables in the matrix of expressions.
 Variables GetDistinctVariables(const Eigen::Ref<const MatrixX<Expression>>& v);
 
