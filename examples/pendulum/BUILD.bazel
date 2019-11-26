@@ -151,21 +151,6 @@ drake_cc_binary(
     ],
 )
 
-drake_cc_binary(
-    name = "region_of_attraction",
-    srcs = ["region_of_attraction.cc"],
-    deps = [
-        ":pendulum_plant",
-        ":pendulum_vector_types",
-        "@gflags",
-        "//solvers:solve",
-        "//solvers:decision_variable",
-        "//solvers:mathematical_program",
-        "//systems/controllers:linear_quadratic_regulator",
-        "//common:symbolic",
-    ],
-)
-
 # === test/ ===
 
 drake_cc_googletest(

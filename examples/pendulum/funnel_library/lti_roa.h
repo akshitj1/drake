@@ -19,7 +19,7 @@ LinearQuadraticRegulatorResult LinearQuadraticRegulatorGains(
     const Eigen::Ref<const Eigen::MatrixXd>& Q,
     const Eigen::Ref<const Eigen::MatrixXd>& R,
     const int input_port_index = 0) {
-  //const int num_inputs = system.get_input_port(input_port_index).size();
+  // const int num_inputs = system.get_input_port(input_port_index).size();
   const int num_states = context.num_total_states();
   DRAKE_DEMAND(num_states > 0);
   auto linear_system =
@@ -32,8 +32,9 @@ LinearQuadraticRegulatorResult LinearQuadraticRegulatorGains(
 }
 }  // namespace controllers
 }  // namespace systems
-namespace analysis {
+namespace examples {
 namespace pendulum {
+namespace analysis {
 
 using std::cout;
 using std::endl;
@@ -64,7 +65,7 @@ LinearQuadraticRegulatorResult getLqrGains(
   return lqr_res;
 }
 
-void LtiRegionOfAttraction() {
+double LtiRegionOfAttraction() {
   // Create the simple system.
   PendulumPlant<Expression> pendulum;
   auto context = pendulum.CreateDefaultContext();
@@ -100,7 +101,6 @@ void LtiRegionOfAttraction() {
 
   const Expression Vdot = 2 * x.transpose() * lqr_res.S * f_poly_approx;
 
-  // const Variable rho{prog.NewContinuousVariables<1>("rho").coeff(0)};
   const Expression lambda{
       prog.NewSosPolynomial(Variables(xvar), 2).first.ToExpression()};
 
@@ -118,26 +118,16 @@ void LtiRegionOfAttraction() {
       ub = rho;
   }
 
-  const double rho_max = rho;  // result.GetSolution(rho);
+  const double rho_max = rho;
 
   cout << "Verified that " << V << " < " << rho_max
        << " is in the region of attraction." << endl;
 
-  // Check that ρ ≃ 1.0.
-  DRAKE_DEMAND(std::abs(rho_max - 1.0) < 1e-6);
+  // Check that 10.0 < ρ < 11.0
+  DRAKE_DEMAND(rho_max > 10.0 && rho_max < 11.0);
+  return rho_max;
 }
-// // we want a copy, not refrence as we are going to modify constraint
-// double rho_line_search(const solvers::MathematicalProgram &_prog, const
-// double lb, const double ub){
-//     auto prog = _prog.Clone();
-//     prog->AddSosConstraint(-(Vdot + lambda * (rho - V)));
-// }
-}  // namespace pendulum
 }  // namespace analysis
+}  // namespace pendulum
+}  // namespace examples
 }  // namespace drake
-
-int main(int argc, char* argv[]) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  drake::analysis::pendulum::LtiRegionOfAttraction();
-  return 0;
-}

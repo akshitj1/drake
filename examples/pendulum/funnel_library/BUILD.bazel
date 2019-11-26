@@ -1,0 +1,75 @@
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+    "drake_cc_library",
+)
+
+package(default_visibility = ["//visibility:private"])
+
+drake_cc_library(
+    name = "lti_roa",
+    srcs = ["lti_roa.h"],
+    deps = [
+        "//common:symbolic",
+        "//examples/pendulum:pendulum_plant",
+        "//examples/pendulum:pendulum_vector_types",
+        "//solvers:decision_variable",
+        "//solvers:mathematical_program",
+        "//solvers:solve",
+        "//systems/controllers:linear_quadratic_regulator",
+        "@gflags",
+    ],
+)
+
+# drake_cc_binary(
+#     name = "ltv_roa",
+#     srcs = ["ltv_roa.cc"],
+#     deps = [
+#         ":pendulum_plant",
+#         ":pendulum_vector_types",
+#         "//common:is_approx_equal_abstol",
+#         "//solvers:solve",
+#         "//systems/primitives:trajectory_source",
+#         "//systems/trajectory_optimization:direct_collocation",
+#         "@gflags",
+#     ],
+# )
+
+drake_cc_library(
+    name = "tvlqr",
+    #srcs = ["tvlqr/tvlqr.cc"],
+    hdrs = ["tvlqr/tvlqr.h"],
+    deps = [
+        "//common:default_scalars",
+        "//common:essential",
+        "//common/trajectories:piecewise_polynomial",
+        "//math:autodiff",
+        "//math:gradient",
+        "//systems/analysis:initial_value_problem",
+        "//systems/controllers:state_feedback_controller_interface",
+        "//systems/framework:leaf_system",
+        "//systems/primitives:linear_system",
+    ],
+)
+
+drake_cc_library(
+    name = "dircol_optimize",
+    hdrs = ["dircol_optimize.h"],
+    deps = [
+        "//examples/pendulum:pendulum_plant",
+        "//solvers:solve",
+        "//systems/trajectory_optimization:direct_collocation",
+    ],
+)
+
+drake_cc_binary(
+    name = "simulate",
+    srcs = ["simulate.cc"],
+    deps = [
+        "//common:essential",
+        ":tvlqr",
+        ":dircol_optimize",
+        ":lti_roa",
+        "@gflags",
+    ],
+)
