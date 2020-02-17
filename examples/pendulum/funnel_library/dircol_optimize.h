@@ -1,12 +1,13 @@
 /**
  * steps:
  * 1. find nominal input(u_0) and state(x_0), S(t), and K(t)
- * 
+ *
  */
 
+#include <stdio.h>
+#include <iomanip>
 #include <iostream>
 #include <memory>
-#include <stdio.h>
 
 #include "drake/examples/pendulum/pendulum_plant.h"
 #include "drake/solvers/solve.h"
@@ -69,13 +70,24 @@ TrajPair optimize_trajectory_dircol() {
               << std::endl;
     throw "Failed to solve optimization for the swing-up trajectory";
   }
-  std::cout<<"Optimum trajectory found with directo collocation. Solver used: "<<result.get_solver_id()<<std::endl; 
+  log()->info(
+      "Optimum trajectory found with directo collocation. Solver used: {}\n",
+      result.get_solver_id());
 
   const PPoly u_opt = dircol.ReconstructInputTrajectory(result);
-  const PPoly x_opt  = dircol.ReconstructStateTrajectory(result);
+  const PPoly x_opt = dircol.ReconstructStateTrajectory(result);
 
+  std::stringstream ts, xs, us;
+  std::cout << "t"
+            << "\t"
+            << "theta"
+            << "\t"
+            << "thetadot"
+            << "\t"
+            << "u" << std::endl;
   for (double t : x_opt.get_segment_times()) {
-    std::cout<<"t: "<<t<<"\tx0: "<<x_opt.value(t)<< std::endl;
+    std::cout << std::setprecision(2) << t << "\t" << x_opt.value(t)(0) << "\t"
+              << x_opt.value(t)(1) << "\t" << u_opt.value(t) << std::endl;
   }
 
   return TrajPair(x_opt, u_opt);

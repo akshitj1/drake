@@ -84,18 +84,19 @@ double LtiRegionOfAttraction() {
   const VectorX<Expression> x = xvar.cast<Expression>();
 
   // Extract the polynomial dynamics.
-  context->get_mutable_continuous_state_vector().SetFromVector(x);
+  context->get_mutable_continuous_state_vector().SetFromVector(
+      x + goal_state.CopyToVector());
   // tau_goal is zero, so additive term ignored
-  context->FixInputPort(0, -lqr_res.K * (x - goal_state.CopyToVector()));
+  context->FixInputPort(0, -lqr_res.K * x);
   // pendulum params default are same as req. values
   pendulum.CalcTimeDerivatives(*context, derivatives.get());
 
   // Define the Lyapunov function.
   const Expression V = x.transpose() * lqr_res.S * x;
-  const Environment poly_approx_env{{xvar(0), goal_state.theta()},
-                                    {xvar(1), goal_state.thetadot()}};
+  const Environment poly_approx_env{{xvar(0), 0},
+                                    {xvar(1), 0}};
   const Expression theta_ddot_poly_approx = symbolic::TaylorExpand(
-      derivatives->CopyToVector()[1], poly_approx_env, 3, false);
+      derivatives->CopyToVector()[1], poly_approx_env, 3);
   VectorX<Expression> f_poly_approx(2);
   f_poly_approx << derivatives->CopyToVector()[0], theta_ddot_poly_approx;
 

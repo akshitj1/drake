@@ -23,3 +23,8 @@ drake::VectorX<symbolic::Monomial> ConstructMonomialBasis(
     const drake::symbolic::Polynomial& p);
 }  // namespace solvers
 }  // namespace drake
+
+// Returns a list of all exponents that appear in a polynomial p.
+// E.g., given p = 1 + 2x₀² + 3x₀*x₁², returns [0, 0; 2, 0; 1, 2];
+Eigen::Matrix<int, -1, -1, Eigen::RowMajor> GetPolynomialExponents(
+    const drake::symbolic::Polynomial& p);

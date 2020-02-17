@@ -6,6 +6,7 @@
 #include "drake/examples/pendulum/funnel_library/tvlqr/tvlqr.h"
 #include "drake/examples/pendulum/pendulum_plant.h"
 #include "drake/solvers/mathematical_program.h"
+#include "drake/solvers/sos_basis_generator.h"
 
 namespace drake {
 namespace examples {
@@ -31,37 +32,71 @@ using symbolic::Polynomial;
 using symbolic::Variable;
 using symbolic::Variables;
 
+typedef std::unordered_map<Variable, int> Exponents;
+
+Exponents PolynomialMaxExponents(const drake::symbolic::Polynomial& p,
+                                 const Variables& indeterminates) {
+  // we take indeterminates as parameters and not the member of p as we want all
+  // indeterminates
+  Exponents var_exps;
+  for (auto var : indeterminates) {
+    var_exps.insert(std::pair<Variable, int>(var, 0));
+  }
+  for (const auto& m : p.monomial_to_coefficient_map()) {
+    for (const auto& var : indeterminates) {
+      var_exps.at(var) = std::max(var_exps.at(var), m.first.degree(var));
+    }
+  }
+  return var_exps;
+}
+
 class sosFeasible {
   const solvers::MathematicalProgram& prog;
-  const Polynomial &t, J, J_dot, h1, h2, h3;
+  const Polynomial &t, J, J_dot;
   const double &t_k, t_kplus1;
 
  public:
   sosFeasible(const solvers::MathematicalProgram& prog, const Polynomial& t,
-              const Polynomial& J, const Polynomial& J_dot,
-              const Polynomial& h1, const Polynomial& h2, const Polynomial& h3,
-              const double& t_k, const double& t_kplus1)
-      : prog(prog),
-        t(t),
-        J(J),
-        J_dot(J_dot),
-        h1(h1),
-        h2(h2),
-        h3(h3),
-        t_k(t_k),
-        t_kplus1(t_kplus1) {}
+              const Polynomial& J, const Polynomial& J_dot, const double& t_k,
+              const double& t_kplus1)
+      : prog(prog), t(t), J(J), J_dot(J_dot), t_k(t_k), t_kplus1(t_kplus1) {}
 
   bool operator()(const double& rho) {
+    log()->info("checking feasibility at rho: {}", rho);
     auto _prog = prog.Clone();
     const double rho_dot = 0;
+    Variables vars(_prog->indeterminates());
+
+    // max_exps are dictated by J_dot and J
+    Exponents max_exps = PolynomialMaxExponents(J_dot + J, vars);
+    Exponents J_exps = PolynomialMaxExponents(J, vars);
+    auto map_diff = [vars](Exponents a, Exponents b) {
+      Exponents exp_diff;
+      for (auto var : vars)
+        exp_diff.insert(std::pair<Variable, int>(var, a.at(var) - b.at(var)));
+      return exp_diff;
+    };
+    auto h1_exps = map_diff(max_exps, J_exps);
+    int h1_deg = 0;
+    for (auto exp : h1_exps) {
+      h1_deg += exp.second;
+    }
+
+    const int h2_deg = 2, h3_deg = h2_deg;  //(J + J_dot).TotalDegree() - 1,
+                                            // h3_deg=h2_deg;  // excluding t^1
+
+    const Polynomial h1 = _prog->NewFreePolynomial(vars, h1_deg);
+    const Polynomial h2 = _prog->NewSosPolynomial(vars, h2_deg).first;
+    const Polynomial h3 = _prog->NewSosPolynomial(vars, h3_deg).first;
+
     _prog->AddSosConstraint(-((J_dot - rho_dot) + h1 * (rho - J) +
                               h2 * (t - t_k) + h3 * (t_kplus1 - t)));
     return solvers::Solve(*_prog).is_success();
   }
 };
 
-double line_search(const std::function<bool(const double&)>& isFeasible, double lb,
-                   double ub, const double kPrec = 0.1) {
+double line_search(const std::function<bool(const double&)>& isFeasible,
+                   double lb, double ub, const double kPrec = 0.1) {
   double rho = (lb + ub) / 2;
   if (isFeasible(rho)) {
     lb = rho;
@@ -103,82 +138,69 @@ std::vector<double> ltv_roa(PendulumPlant<double>& pendulum, const PPoly& x_opt,
   PPoly S_t, K_t;
   lqr->getSKTrajectory(S_t, K_t);
   std::vector<double> breaks = x_opt.get_segment_times();
+  const int N_breaks = breaks.size();
 
   // #breaks + rho_final
-  std::vector<double> alpha_t(x_opt.get_number_of_segments() + 1);
-  alpha_t[x_opt.get_number_of_segments()] = 10.3;  // LtiRegionOfAttraction();
+  std::vector<double> alpha_t(N_breaks, 0);
+  alpha_t[N_breaks - 1] = 10.2734;  // LtiRegionOfAttraction();
 
-  for (int k = x_opt.get_number_of_segments() - 1; k >= 0; k--) {
+  // start from second last rho is already set to rho_lti
+  for (int k = N_breaks - 2; k >= 0; k--) {
     solvers::MathematicalProgram prog;
     const VectorX<Variable> xvar{prog.NewIndeterminates<2>(
         std::array<std::string, 2>{"theta", "thetadot"})};
+
     const Variable tvar{
         prog.NewIndeterminates<1>(std::array<std::string, 1>{"t"})(0)};
     const Variables indeterminates(prog.indeterminates());
 
-    double t_k = breaks[k];
+    double t_k = breaks[k], t_kplus1 = breaks[k + 1];
     VectorX<Polynomial> x0 = toSymbolicPoly(x_opt.getPolynomialMatrix(k), tvar);
     VectorX<Polynomial> u0 = toSymbolicPoly(u_opt.getPolynomialMatrix(k), tvar);
-    // all element polynomials have variable name "t"
     auto S = toSymbolicPoly(S_t.getPolynomialMatrix(k), tvar);
-
     auto K = toSymbolicPoly(K_t.getPolynomialMatrix(k), tvar);
     // SOS
     const Polynomial t(tvar, indeterminates);
     const VectorX<Polynomial> x = xvar.unaryExpr(
         [indeterminates](Variable x) { return Polynomial(x, indeterminates); });
 
-    const MatrixX<Polynomial> S_dot =
-        S.unaryExpr([tvar](Polynomial x) { return x.Differentiate(tvar); });
-
     PendulumPlant<Expression> _pendulum;
     auto context = _pendulum.CreateDefaultContext();
-    // Extract the polynomial dynamics.
     context->get_mutable_continuous_state_vector().SetFromVector(
-        (x0+x).cast<Expression>());
-    context->FixInputPort(0, (u0 - K * (x)).cast<Expression>());
+        (x0 + x).cast<Expression>());
+    context->FixInputPort(0, (u0 - K * x).cast<Expression>());
     auto x_dot = _pendulum.AllocateTimeDerivatives();
-    // pendulum params default are same as req. values
     _pendulum.CalcTimeDerivatives(*context, x_dot.get());
 
-    // Define the Lyapunov function.
-    VectorX<double> x0_val = x_opt.value(t_k);
-    // todo: do we need time?
-    const Environment poly_approx_env{
-        {xvar(0), x0_val(0)}, {xvar(1), x0_val(1)}, {tvar, t_k}};
+    const Environment poly_approx_env{{xvar(0), 0}, {xvar(1), 0}, {tvar, t_k}};
 
     const Polynomial theta_ddot_approx(
-        symbolic::TaylorExpand(x_dot->CopyToVector()[1], poly_approx_env, 3,
-                               false),
+        symbolic::TaylorExpand(x_dot->CopyToVector()[1], poly_approx_env, 3),
         indeterminates);
 
     VectorX<Polynomial> x_dot_approx(x.size());
     x_dot_approx << Polynomial(x_dot->CopyToVector()[0], indeterminates),
         theta_ddot_approx;
 
+    const MatrixX<Polynomial> S_dot =
+        S.unaryExpr([tvar](Polynomial x) { return x.Differentiate(tvar); });
+
     Polynomial J = (x.transpose() * S * x)(0);
     Polynomial J_dot = (x.transpose() * S_dot * x +
                         Polynomial(2) * x.transpose() * S * x_dot_approx)(0);
-
-    const Polynomial h1 = prog.NewFreePolynomial(indeterminates, 2);
-    const Polynomial h2 = prog.NewSosPolynomial(indeterminates, 2).first;
-    const Polynomial h3 = prog.NewSosPolynomial(indeterminates, 2).first;
 
     // Variable rhovar("rho");
     // Polynomial rho(rhovar, indeterminates);
     // prog.AddDecisionVariables(
     //     (solvers::VectorXDecisionVariable(1) << rhovar).finished());
     // const int rho_dot = 0;
-
-    auto t_kplus1 = breaks[k + 1];
     // todo: fix this
     // auto isFeasible = [_prog=prog.Clones, t, J, J_dot, h1, h2, h3, t_k,
     //                    t_kplus1](const double& rho) {
     //   return solvers::Solve(*_prog).is_success();
     // };
-    alpha_t[k] =
-        line_search(sosFeasible(prog, t, J, J_dot, h1, h2, h3, t_k, t_kplus1),
-                    0.0, alpha_t[k + 1]);
+    alpha_t[k] = line_search(sosFeasible(prog, t, J, J_dot, t_k, t_kplus1), 0.0,
+                             alpha_t[k + 1]);
   }
   return alpha_t;
 }

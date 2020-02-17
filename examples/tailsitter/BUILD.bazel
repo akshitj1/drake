@@ -1,0 +1,35 @@
+# -*- python -*-
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+    "drake_cc_library",
+)
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
+
+drake_cc_library(
+    name = "tailsitter_plant",
+    srcs = [],
+    hdrs = ["tailsitter_plant.h"],
+    deps = [
+        "//common:default_scalars",
+        "//math:geometric_transform",
+        "//systems/framework:leaf_system",
+    ],
+)
+
+drake_cc_binary(
+    name="run_tailsitter_dircol",
+    srcs=["run_tailsitter_dircol.cc"],
+    deps=[
+        "//common/trajectories:piecewise_polynomial",
+        ":tailsitter_plant",
+        "//solvers:solve",
+        "//systems/trajectory_optimization:direct_collocation",
+        "@gflags"
+    ]
+)
