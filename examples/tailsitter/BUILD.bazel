@@ -5,11 +5,24 @@ load(
     "drake_cc_library",
 )
 
+load(
+    "@drake//tools/vector_gen:vector_gen.bzl",
+    "drake_cc_vector_gen_library",
+)
+
+
 package(
     default_visibility = [
         "//visibility:public",
     ],
 )
+
+drake_cc_vector_gen_library(
+    name = "tailsitter_state",
+    srcs = ["tailsitter_state.named_vector"],
+    visibility = ["//visibility:public"],
+)
+
 
 drake_cc_library(
     name = "tailsitter_plant",
@@ -26,10 +39,17 @@ drake_cc_binary(
     name="run_tailsitter_dircol",
     srcs=["run_tailsitter_dircol.cc"],
     deps=[
+        "//common:default_scalars",
         "//common/trajectories:piecewise_polynomial",
         ":tailsitter_plant",
         "//solvers:solve",
         "//systems/trajectory_optimization:direct_collocation",
+        "//attic/multibody/parsers",
+        "//systems/framework:diagram_builder",
+        "//lcm",
+        "//attic/multibody/rigid_body_plant:drake_visualizer",
+        "//systems/analysis:simulator",
+        ":tailsitter_state",
         "@gflags"
     ]
 )

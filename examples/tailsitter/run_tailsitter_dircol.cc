@@ -1,18 +1,24 @@
 #include "limits"
+
 #include <fmt/format.h>
 
 #include "gflags/gflags.h"
-#include "drake/examples/tailsitter/tailsitter_plant.h"
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/trajectories/piecewise_polynomial.h"
+#include "drake/examples/tailsitter/gen/tailsitter_state.h"
+#include "drake/examples/tailsitter/tailsitter_plant.h"
+#include "drake/lcm/drake_lcm.h"
+#include "drake/multibody/parsers/urdf_parser.h"
+#include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/solvers/solve.h"
-//#include "drake/systems/analysis/simulator.h"
+#include "drake/systems/analysis/simulator.h"
+#include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/trajectory_optimization/direct_collocation.h"
 
 namespace drake {
 using systems::Context;
 using systems::ContinuousState;
-// using systems::Simulator;
 using systems::VectorBase;
 
 namespace examples {
@@ -20,6 +26,25 @@ namespace tailsitter {
 typedef trajectories::PiecewisePolynomial<double> PPoly;
 typedef std::pair<PPoly, PPoly> TrajPair;
 namespace {
+
+template <typename T>
+class TailsitterController : public systems::LeafSystem<T> {
+  const PPoly& u_opt;
+  public:
+  TailsitterController(const PPoly& u_opt) : u_opt(u_opt) {
+    this->DeclareVectorInputPort("tailsitter_state", systems::BasicVector<T>(7));
+    this->DeclareVectorOutputPort("elevon_deflection",
+                                  systems::BasicVector<T>(1),
+                                  &TailsitterController::CalcElevonDeflection);
+  }
+  void CalcElevonDeflection(const systems::Context<T>& context,
+                            systems::BasicVector<T>* control) const {
+    const double& t = context.get_time();
+    auto u = u_opt.value(t);
+    control->SetFromVector(u);
+  }
+};
+
 
 /*
  * ref:
@@ -52,7 +77,8 @@ TrajPair run_dircol(const Tailsitter<double>& tailsitter) {
 
   auto context = tailsitter.CreateDefaultContext();
   systems::trajectory_optimization::DirectCollocation dircol(
-      &tailsitter, *context, kNumTimeSamples, kMinimumTimeStep, kMaximumTimeStep);
+      &tailsitter, *context, kNumTimeSamples, kMinimumTimeStep,
+      kMaximumTimeStep);
 
   dircol.AddEqualTimeIntervalsConstraints();
 
@@ -103,9 +129,9 @@ TrajPair run_dircol(const Tailsitter<double>& tailsitter) {
   PPoly u_des = dircol.ReconstructInputTrajectory(result);
 
   const VectorX<double> x_final = x_des.value(x_des.end_time());
-  drake::log()->info(
-      fmt::format("final state:\n x: {:.1f} m\ty: {:.1f} m\tangle: {:.0f} degree",
-              x_final[0], x_final[1], 180 * x_final[2] / M_PI));
+  drake::log()->info(fmt::format(
+      "final state:\n x: {:.1f} m\ty: {:.1f} m\tangle: {:.0f} degree",
+      x_final[0], x_final[1], 180 * x_final[2] / M_PI));
 
   return TrajPair(x_des, u_des);
 }
@@ -115,12 +141,42 @@ TrajPair run_dircol(const Tailsitter<double>& tailsitter) {
  * https://thispointer.com/c11-unique_ptr-tutorial-and-examples/
  */
 void do_main() {
-  Tailsitter<double> tailsitter;
-  ;
-  tailsitter.set_name("tailsitter");
+  // Tailsitter<double> tailsitter;
+  // ;
+  // tailsitter.set_name("tailsitter");
 
   // get optimal state and input trajectories to reach goal
-  auto tr_des = run_dircol(tailsitter);
+  // auto tr_des = run_dircol(tailsitter);
+
+  auto tree = std::make_unique<RigidBodyTree<double>>();
+  // 2nd param??
+  parsers::urdf::AddModelInstanceFromUrdfFileToWorld(
+      "drake/examples/tailsitter/Tailsitter.urdf", multibody::joints::kFixed,
+      tree.get());
+
+  systems::DiagramBuilder<double> builder;
+  auto tailsitter = builder.AddSystem<Tailsitter>();
+  lcm::DrakeLcm lcm;
+  auto publisher = builder.AddSystem<systems::DrakeVisualizer>(*tree, &lcm);
+  builder.Connect(tailsitter->get_output_port(0), publisher->get_input_port(0));
+  // builder.Connect(publisher->get_output_port(0), tailsitter->get_input_port(0));
+
+  auto tr_des = run_dircol(*tailsitter);
+
+  auto ts_controller = builder.AddSystem<TailsitterController<double>>(tr_des.second);
+  builder.Connect(tailsitter->get_output_port(0), ts_controller->get_input_port(0));
+  builder.Connect(ts_controller->get_output_port(0),tailsitter->get_input_port(0));
+
+  auto diagram = builder.Build();
+  systems::Simulator<double> simulator(*diagram);
+  // systems::Context<double>& ts_context = diagram->GetMutableSubsystemContext(
+  //     *tailsitter, &simulator.get_mutable_context());
+  //Vector<double, 7>& state = ts_context.get_mutable_discrete_state_vector();
+  //DRAKE_DEMAND(state != nullptr);
+  // todo: set initial state
+
+  simulator.set_target_realtime_rate(1);
+  simulator.AdvanceTo(tr_des.first.end_time());
 }
 }  // namespace
 
