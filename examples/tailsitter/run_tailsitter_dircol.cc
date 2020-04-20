@@ -8,9 +8,6 @@
 #include "drake/common/trajectories/piecewise_polynomial.h"
 #include "drake/examples/tailsitter/gen/tailsitter_state.h"
 #include "drake/examples/tailsitter/tailsitter_plant.h"
-#include "drake/lcm/drake_lcm.h"
-#include "drake/multibody/parsers/urdf_parser.h"
-#include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/solvers/solve.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -30,9 +27,11 @@ namespace {
 template <typename T>
 class TailsitterController : public systems::LeafSystem<T> {
   const PPoly& u_opt;
-  public:
+
+ public:
   TailsitterController(const PPoly& u_opt) : u_opt(u_opt) {
-    this->DeclareVectorInputPort("tailsitter_state", systems::BasicVector<T>(7));
+    this->DeclareVectorInputPort("tailsitter_state",
+                                 systems::BasicVector<T>(7));
     this->DeclareVectorOutputPort("elevon_deflection",
                                   systems::BasicVector<T>(1),
                                   &TailsitterController::CalcElevonDeflection);
@@ -44,7 +43,6 @@ class TailsitterController : public systems::LeafSystem<T> {
     control->SetFromVector(u);
   }
 };
-
 
 /*
  * ref:
@@ -148,31 +146,24 @@ void do_main() {
   // get optimal state and input trajectories to reach goal
   // auto tr_des = run_dircol(tailsitter);
 
-  auto tree = std::make_unique<RigidBodyTree<double>>();
-  // 2nd param??
-  parsers::urdf::AddModelInstanceFromUrdfFileToWorld(
-      "drake/examples/tailsitter/Tailsitter.urdf", multibody::joints::kFixed,
-      tree.get());
-
   systems::DiagramBuilder<double> builder;
   auto tailsitter = builder.AddSystem<Tailsitter>();
-  lcm::DrakeLcm lcm;
-  auto publisher = builder.AddSystem<systems::DrakeVisualizer>(*tree, &lcm);
-  builder.Connect(tailsitter->get_output_port(0), publisher->get_input_port(0));
-  // builder.Connect(publisher->get_output_port(0), tailsitter->get_input_port(0));
 
   auto tr_des = run_dircol(*tailsitter);
 
-  auto ts_controller = builder.AddSystem<TailsitterController<double>>(tr_des.second);
-  builder.Connect(tailsitter->get_output_port(0), ts_controller->get_input_port(0));
-  builder.Connect(ts_controller->get_output_port(0),tailsitter->get_input_port(0));
+  auto ts_controller =
+      builder.AddSystem<TailsitterController<double>>(tr_des.second);
+  builder.Connect(tailsitter->get_output_port(0),
+                  ts_controller->get_input_port(0));
+  builder.Connect(ts_controller->get_output_port(0),
+                  tailsitter->get_input_port(0));
 
   auto diagram = builder.Build();
   systems::Simulator<double> simulator(*diagram);
   // systems::Context<double>& ts_context = diagram->GetMutableSubsystemContext(
   //     *tailsitter, &simulator.get_mutable_context());
-  //Vector<double, 7>& state = ts_context.get_mutable_discrete_state_vector();
-  //DRAKE_DEMAND(state != nullptr);
+  // Vector<double, 7>& state = ts_context.get_mutable_discrete_state_vector();
+  // DRAKE_DEMAND(state != nullptr);
   // todo: set initial state
 
   simulator.set_target_realtime_rate(1);

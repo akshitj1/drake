@@ -1,14 +1,16 @@
 #pragma once
 #include <cmath>
-
 #include <memory>
 
 #include <Eigen/Core>
 
 #include "drake/common/default_scalars.h"
+#include "drake/examples/tailsitter/gen/tailsitter_state.h"
 #include "drake/systems/framework/leaf_system.h"
 
-namespace drake{namespace examples{namespace tailsitter{
+namespace drake {
+namespace examples {
+namespace tailsitter {
 
 template <typename T>
 class Tailsitter final : public systems::LeafSystem<T> {
@@ -28,74 +30,64 @@ class Tailsitter final : public systems::LeafSystem<T> {
     // only one controllable input that is tail deflection
     this->DeclareVectorInputPort("tail_defl_rate",
                                  drake::systems::BasicVector<T>(1));
-    // this->DeclareInputPort("tail_defl_rate", drake::systems::kVectorValued,
-    // 1);
     // 3 pos -> x, y, theta ; 3 vel -> x_dot, y_dot, theta_dot ; phi
-    this->DeclareContinuousState(7);
-    this->DeclareVectorOutputPort("tailsitter_state",
-                                  drake::systems::BasicVector<T>(7),
-                                  &Tailsitter::CopyStateOut);
+    this->DeclareContinuousState(TailsitterState<T>(), 3, 3, 1);
+    this->DeclareVectorOutputPort("tailsitter_state", &Tailsitter::CopyStateOut,
+                                  {this->all_state_ticket()});
   }
 
   template <typename U>
   explicit Tailsitter(const Tailsitter<U>&) : Tailsitter<T>() {}
 
   void CopyStateOut(const drake::systems::Context<T>& context,
-                    drake::systems::BasicVector<T>* output) const {
-    // Write system output.2
-    output->set_value(context.get_continuous_state_vector().CopyToVector());
+                    TailsitterState<T>* output) const {
+    *output = get_state(context);
+  }
+
+  static const TailsitterState<T>& get_state(const systems::Context<T>& ctx) {
+    return dynamic_cast<const TailsitterState<T>&>(
+        ctx.get_continuous_state().get_vector());
+  }
+
+  static TailsitterState<T>& get_mutable_state(
+      systems::ContinuousState<T>* derivatives) {
+    return dynamic_cast<TailsitterState<T>&>(derivatives->get_mutable_vector());
   }
 
   void DoCalcTimeDerivatives(
       const systems::Context<T>& context,
       systems::ContinuousState<T>* derivatives) const override {
-    const drake::systems::VectorBase<T>& q =
-        context.get_continuous_state_vector();
-    // const drake::systems::BasicVector<T> *input_vector =
-    // this->EvalVectorInput(context, 0);
+    const TailsitterState<T>& q = get_state(context);
 
-    auto theta = q[2], phi = q[3], x_dot = q[4],
-         z_dot = q[5];
-    // Vector2<T> xdot(q[4],q[5]);
-    auto theta_dot = q[6];
     // elevon defl. rate
     auto phi_dot = this->get_input_port(0).Eval(context)(0);
 
-    auto xw_dot = x_dot - kLw * theta_dot * sin(theta);
-    auto zw_dot = z_dot + kLw * theta_dot * cos(theta);
-    auto alpha_w = theta - atan2(zw_dot, xw_dot);
+    auto xw_dot = q.x_dot() - kLw * q.theta_dot() * sin(q.theta());
+    auto zw_dot = q.z_dot() + kLw * q.theta_dot() * cos(q.theta());
+    auto alpha_w = q.theta() - atan2(zw_dot, xw_dot);
     auto F_w = kRho * kWingS * sin(alpha_w) * (pow(zw_dot, 2) + pow(xw_dot, 2));
 
-    auto xe_dot = x_dot + kL * theta_dot * sin(theta) +
-                  kLe * (theta_dot + phi_dot) * sin(theta + phi);
-    auto ze_dot = z_dot - kL * theta_dot * cos(theta) -
-                  kLe * (theta_dot + phi_dot) * cos(theta + phi);
-    auto alpha_e = theta + phi - atan2(ze_dot, xe_dot);
+    auto xe_dot = q.x_dot() + kL * q.theta_dot() * sin(q.theta()) +
+                  kLe * (q.theta_dot() + phi_dot) * sin(q.theta() + q.phi());
+    auto ze_dot = q.z_dot() - kL * q.theta_dot() * cos(q.theta()) -
+                  kLe * (q.theta_dot() + phi_dot) * cos(q.theta() + q.phi());
+    auto alpha_e = q.theta() + q.phi() - atan2(ze_dot, xe_dot);
     auto F_e = kRho * kTailS * sin(alpha_e) * (pow(ze_dot, 2) + pow(xe_dot, 2));
 
-    auto x_ddot = -(F_w * sin(theta) + F_e * sin(theta + phi)) / kMass;
-    auto z_ddot = (F_w * cos(theta) + F_e * cos(theta + phi)) / kMass - kG;
-    auto theta_ddot = (F_w * kLw - F_e * (kL * cos(phi) + kLe)) / kInertia;
+    auto x_ddot =
+        -(F_w * sin(q.theta()) + F_e * sin(q.theta() + q.phi())) / kMass;
+    auto z_ddot =
+        (F_w * cos(q.theta()) + F_e * cos(q.theta() + q.phi())) / kMass - kG;
+    auto theta_ddot = (F_w * kLw - F_e * (kL * cos(q.phi()) + kLe)) / kInertia;
 
-    /*
-                auto xdot_w = _calcSurfaceVel(xdot, kLw, theta, thetadot);
-                auto F_w = _calcSurfaceForce(kWingS, xdot_w, theta);
-
-                auto xdot_e = _calcSurfaceVel(xdot, kLe, theta+phi, thetadot +
-       phidot)
-                        + _calcSurfaceVel(Vector2<T>(0, 0), kL, theta,
-       thetadot); auto F_e = _calcSurfaceForce(kTailS, xdot_e, theta + phi);
-
-                const Vector2<T> kF_g(0, -kMass*kG);
-                auto acc = (F_w + F_e + kF_g)/kMass;
-                T theta_ddot = (Vector2<T>(kLw, 0).dot(F_w)
-                        + Vector2<T>(-kL - kLe * cos(theta),-kL + kLe *
-       sin(theta)).dot(F_e)) / kInertia;
-    */
-    VectorX<T> q_dot(7);
-    // q_dot << xdot[0], xdot[1], thetadot, phidot, acc[0], acc[1], theta_ddot;
-    q_dot << x_dot, z_dot, theta_dot, phi_dot, x_ddot, z_ddot, theta_ddot;
-    derivatives->SetFromVector(q_dot);
+    TailsitterState<T>& q_dot = get_mutable_state(derivatives);
+    q_dot.set_x(q.x_dot());
+    q_dot.set_z(q.z_dot());
+    q_dot.set_theta(q.theta_dot());
+    q_dot.set_phi(phi_dot);
+    q_dot.set_x_dot(x_ddot);
+    q_dot.set_z_dot(z_ddot);
+    q_dot.set_theta_dot(theta_ddot);
   }
 
   T _liftCoeff(T alpha) const { return sin(2 * alpha); }
@@ -122,7 +114,7 @@ class Tailsitter final : public systems::LeafSystem<T> {
 };
 
 }  // namespace tailsitter
-} // namespace examples
+}  // namespace examples
 
 // The following code was added to prevent scalar conversion to symbolic scalar
 // types. The QuadrotorPlant makes use of classes that are not compatible with
@@ -134,4 +126,4 @@ template <>
 struct Traits<examples::tailsitter::Tailsitter> : public NonSymbolicTraits {};
 }  // namespace scalar_conversion
 }  // namespace systems
-} // namespace drake
+}  // namespace drake
