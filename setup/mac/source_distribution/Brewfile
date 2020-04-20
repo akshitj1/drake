@@ -15,4 +15,4 @@ brew 'llvm@6'
 brew 'patchutils'
 brew 'pkg-config'
 
-cask 'font-dejavu-sans' unless File.exist? '/Library/Fonts/DejaVuSans.ttf'
+# cask 'font-dejavu-sans' unless File.exist? '/Library/Fonts/DejaVuSans.ttf'
