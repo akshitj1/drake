@@ -34,8 +34,8 @@ drake_cc_library(
 )
 
 drake_cc_binary(
-    name = "run_tailsitter_dircol",
-    srcs = ["run_tailsitter_dircol.cc"],
+    name = "perch_tailsitter",
+    srcs = ["perch_tailsitter.cc"],
     deps = [
         ":tailsitter_plant",
         "//common:default_scalars",

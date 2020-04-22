@@ -1,4 +1,5 @@
 # Common editor-specific files
+.vscode
 *.idea
 *.autosave
 *.log
