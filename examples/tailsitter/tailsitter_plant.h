@@ -5,6 +5,7 @@
 #include <Eigen/Core>
 
 #include "drake/common/default_scalars.h"
+#include "drake/examples/tailsitter/gen/tailsitter_input.h"
 #include "drake/examples/tailsitter/gen/tailsitter_state.h"
 #include "drake/systems/framework/leaf_system.h"
 
@@ -28,8 +29,7 @@ class Tailsitter final : public systems::LeafSystem<T> {
 
   Tailsitter() : systems::LeafSystem<T>(systems::SystemTypeTag<Tailsitter>{}) {
     // only one controllable input that is tail deflection
-    this->DeclareVectorInputPort("tail_defl_rate",
-                                 drake::systems::BasicVector<T>(1));
+    this->DeclareVectorInputPort("tail_defl_rate", TailsitterInput<T>());
     // 3 pos -> x, y, theta ; 3 vel -> x_dot, y_dot, theta_dot ; phi
     this->DeclareContinuousState(TailsitterState<T>(), 3, 3, 1);
     this->DeclareVectorOutputPort("tailsitter_state", &Tailsitter::CopyStateOut,

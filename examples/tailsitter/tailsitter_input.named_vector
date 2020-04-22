@@ -1,0 +1,8 @@
+namespace: "drake::examples::tailsitter"
+
+element{
+    name: "phi_dot"
+    doc: "elevon deflection rate"
+    doc_units: "rad/s"
+    default_value: "0.0"
+}

@@ -16,8 +16,11 @@ package(
 )
 
 drake_cc_vector_gen_library(
-    name = "tailsitter_state",
-    srcs = ["tailsitter_state.named_vector"],
+    name = "tailsitter_vector_types",
+    srcs = [
+        "tailsitter_input.named_vector",
+        "tailsitter_state.named_vector",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -26,7 +29,7 @@ drake_cc_library(
     srcs = [],
     hdrs = ["tailsitter_plant.h"],
     deps = [
-        ":tailsitter_state",
+        ":tailsitter_vector_types",
         "//common:default_scalars",
         "//math:geometric_transform",
         "//systems/framework:leaf_system",
