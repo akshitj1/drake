@@ -21,8 +21,9 @@ class Tailsitter final : public systems::LeafSystem<T> {
   static constexpr double kG = 9.81, kRho = 1.204;  // atm density
   static constexpr double kMass = 0.082, kInertia = 0.0015;
   static constexpr double kTailS = 0.0147, kWingS = 0.0885;
-  static constexpr double kLe = 0.022, kL = 0.27;
-  static constexpr double kLw = 0;
+  static constexpr double kLe = 0.022, kL = 0.27, kLw = 0.0;
+  static constexpr double kPropDiameter = kL / 2,
+                          kThrustMax = 1.6 * (kMass * kG);
 
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(Tailsitter);
@@ -58,31 +59,47 @@ class Tailsitter final : public systems::LeafSystem<T> {
       const systems::Context<T>& context,
       systems::ContinuousState<T>* derivatives) const override {
     const TailsitterState<T>& q = get_state(context);
+    TailsitterInput<T> input;
+    input.SetFromVector(this->get_input_port(0).Eval(context));
 
-    // elevon defl. rate
-    auto phi_dot = this->get_input_port(0).Eval(context)(0);
-
-    Vector2<T> F_w, F_e;
+    Vector2<T> F_w, F_e, F_p;
     const Vector2<T> F_g(0, -kMass * kG);
     T T_w, T_e;
-    get_plate_forces_and_torques(Vector2<T>(q.x_dot(), q.z_dot()), q.theta(),
-                                 q.theta_dot(), Vector2<T>(-kLw, 0), kWingS, 0,
-                                 0, 0, F_w, T_w);
-    get_plate_forces_and_torques(Vector2<T>(q.x_dot(), q.z_dot()), q.theta(),
-                                 q.theta_dot(), Vector2<T>(-kL, 0), kTailS, kLe,
-                                 q.phi(), phi_dot, F_e, T_e);
 
-    Vector2<T> pos_ddot = (F_w + F_e + F_g) / kMass;
+    Vector2<T> prop_downwash;
+    get_propeller_force_and_downwash(input.prop_throttle(), q.theta(), F_p,
+                                     prop_downwash);
+
+    get_plate_forces_and_torques(
+        Vector2<T>(q.x_dot(), q.z_dot()) - prop_downwash, q.theta(),
+        q.theta_dot(), Vector2<T>(-kLw, 0), kWingS, 0, 0, 0, F_w, T_w);
+    get_plate_forces_and_torques(
+        Vector2<T>(q.x_dot(), q.z_dot()) - prop_downwash, q.theta(),
+        q.theta_dot(), Vector2<T>(-kL, 0), kTailS, kLe, q.phi(),
+        input.phi_dot(), F_e, T_e);
+
+    Vector2<T> pos_ddot = (F_p, F_w + F_e + F_g) / kMass;
     T theta_ddot = (T_w + T_e) / kInertia;
 
     TailsitterState<T>& q_dot = get_mutable_state(derivatives);
     q_dot.set_x(q.x_dot());
     q_dot.set_z(q.z_dot());
     q_dot.set_theta(q.theta_dot());
-    q_dot.set_phi(phi_dot);
+    q_dot.set_phi(input.phi_dot());
     q_dot.set_x_dot(pos_ddot(0));
     q_dot.set_z_dot(pos_ddot(1));
     q_dot.set_theta_dot(theta_ddot);
+  }
+
+  static void get_propeller_force_and_downwash(const T& throttle,
+                                               const T& parent_theta,
+                                               Vector2<T>& force_I,
+                                               Vector2<T>& downwash_vel_I) {
+    Vector2<T> force_B = Vector2<T>(throttle * kThrustMax, 0);
+    downwash_vel_I =
+        rotate(Vector2<T>(-sqrt((2 * force_B(0)) / (kRho * kPropDiameter)), 0),
+               parent_theta);
+    force_I = rotate(force_B, parent_theta);
   }
 
   static void get_plate_forces_and_torques(

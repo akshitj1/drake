@@ -6,6 +6,7 @@
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/trajectories/piecewise_polynomial.h"
+#include "drake/examples/tailsitter/gen/tailsitter_input.h"
 #include "drake/examples/tailsitter/gen/tailsitter_state.h"
 #include "drake/examples/tailsitter/tailsitter_plant.h"
 #include "drake/solvers/solve.h"
@@ -33,17 +34,16 @@ class TailsitterController : public systems::LeafSystem<T> {
 
  public:
   TailsitterController(const PPoly& u_opt) : u_opt(u_opt) {
-    this->DeclareVectorInputPort("tailsitter_state",
-                                 systems::BasicVector<T>(7));
-    this->DeclareVectorOutputPort("elevon_deflection",
-                                  systems::BasicVector<T>(1),
+    this->DeclareVectorInputPort("tailsitter_state", TailsitterState<T>());
+    this->DeclareVectorOutputPort("control_inputs", TailsitterInput<T>(),
                                   &TailsitterController::CalcElevonDeflection);
   }
   void CalcElevonDeflection(const systems::Context<T>& context,
-                            systems::BasicVector<T>* control) const {
+                            TailsitterInput<T>* control) const {
     const double& t = context.get_time();
-    auto u = u_opt.value(t);
-    control->SetFromVector(u);
+    // auto u = u_opt.value(t);
+    // control->SetFromVector(u);
+    control->SetFromVector(u_opt.value(t));
   }
 };
 
@@ -93,8 +93,7 @@ class TrajectoryOptimizer {
   }
 
   void add_running_cost(const VectorX<double>& input_cost) {
-    MatrixX<double> R(input_cost.size(), input_cost.size());
-    R = input_cost.asDiagonal();
+    MatrixX<double> R(input_cost.asDiagonal());
     optimizer.AddRunningCost(optimizer.input().transpose() * R *
                              optimizer.input());
   }
@@ -135,6 +134,12 @@ class TrajectoryOptimizer {
 
     state_opt = optimizer.ReconstructStateTrajectory(result);
     input_opt = optimizer.ReconstructInputTrajectory(result);
+
+    for (auto t : state_opt.get_segment_times()) {
+      log()->info(fmt::format("state: {}\tinput: {}\n",
+                              state_opt.value(t).transpose(),
+                              input_opt.value(t).transpose()));
+    }
   }
 };
 
@@ -154,7 +159,7 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   TailsitterState<double> land_state;
   land_state.set_x(0);
   land_state.set_z(0);
-  land_state.set_phi(M_PI / 4);
+  land_state.set_theta(M_PI / 4);
   land_state.set_z_dot(-0.5);
   land_state.set_theta_dot(-0.5);
 
@@ -167,7 +172,7 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   land_tol.set_z_dot(2);
   land_tol.set_theta_dot(kInf);
 
-  const double kPhiLimitL = -M_PI / 3, kPhiLimitU = M_PI / 6, kPhiDotLimit = 13;
+  const double kPhiLimitL = -M_PI / 3, kPhiLimitU = M_PI / 3, kPhiDotLimit = 13;
 
   TailsitterState<double> state_l;
   state_l.SetFromVector(VectorX<double>::Constant(kNumStates, -kInf));
@@ -183,7 +188,13 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   state_u.set_theta(M_PI / 2);
   state_u.set_phi(kPhiLimitU);
 
-  const double kRunningCost = 100;
+  TailsitterInput<double> input_l, input_u;
+  input_l.set_phi_dot(-kPhiDotLimit);
+  input_u.set_phi_dot(kPhiDotLimit);
+  input_l.set_prop_throttle(0);
+  input_u.set_prop_throttle(1);
+
+  const Vector2<double> kRunningCost(100, 100);
   // todo: replace with tsState as can cause indexing bugs
   const auto kFinalCost =
       (VectorX<double>(kNumStates) << 10, 10, 1, 10, 1, 1, 1).finished();
@@ -194,8 +205,9 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   traj_optimizer.set_final_state(land_state.CopyToVector(),
                                  land_tol.CopyToVector());
   traj_optimizer.bound_state(state_l.CopyToVector(), state_u.CopyToVector());
-  traj_optimizer.bound_input(Vector1d(-kPhiDotLimit), Vector1d(kPhiDotLimit));
-  traj_optimizer.add_running_cost(Vector1<double>(kRunningCost));
+  traj_optimizer.bound_input(input_l.CopyToVector(), input_u.CopyToVector());
+
+  traj_optimizer.add_running_cost(kRunningCost);
   traj_optimizer.add_final_cost(kFinalCost);
 
   traj_optimizer.get_optimum_trajectories(state_opt, input_opt);

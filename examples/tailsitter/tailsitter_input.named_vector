@@ -6,3 +6,10 @@ element{
     doc_units: "rad/s"
     default_value: "0.0"
 }
+
+element{
+    name: "prop_throttle"
+    doc: "nomalized propeller throttle"
+    doc_units: ""
+    default_value: "0.0"
+}
