@@ -123,12 +123,15 @@ class TrajectoryOptimizer {
                                 const double max_traj_time = 10) {
     set_trajectory_guess();
     optimizer.AddDurationBounds(0, max_traj_time);
+
+    log()->info("computing optimal perching trajectory...");
     const auto result = solvers::Solve(optimizer);
 
     if (!result.is_success()) {
       throw result.get_solver_id().name() +
           " Failed to solve optimization while finding optimum trajectory";
     }
+    log()->info("found optimal perching trajectory...");
 
     state_opt = optimizer.ReconstructStateTrajectory(result);
     input_opt = optimizer.ReconstructInputTrajectory(result);
