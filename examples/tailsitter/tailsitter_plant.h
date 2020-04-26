@@ -15,7 +15,7 @@ namespace tailsitter {
 
 template <typename T>
 class Tailsitter final : public systems::LeafSystem<T> {
- private:
+ public:
   // taken from
   // https://github.com/RobotLocomotion/drake/blob/BeforeCCode/examples/Glider/GliderPlant.m
   static constexpr double kG = 9.81, kRho = 1.204;  // atm density
@@ -26,6 +26,8 @@ class Tailsitter final : public systems::LeafSystem<T> {
                           kPropArea =
                               (M_PI * kPropDiameter * kPropDiameter) / 4,
                           kThrustMax = 1.6 * (kMass * kG);
+  static constexpr double kPhiLimitL = -M_PI / 3, kPhiLimitU = M_PI / 3,
+                          kPhiDotLimit = 13;
 
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(Tailsitter);

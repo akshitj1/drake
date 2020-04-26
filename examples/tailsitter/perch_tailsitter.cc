@@ -29,6 +29,8 @@ typedef trajectories::PiecewisePolynomial<double> PPoly;
 namespace {
 static const double kEps = std::numeric_limits<double>::epsilon();
 static const double kInf = std::numeric_limits<double>::infinity() / 2;
+const int kNumStates = TailsitterState<double>::K::kNumCoordinates;
+const int kNumInputs = TailsitterInput<double>::K::kNumCoordinates;
 
 template <typename T>
 class TailsitterController : public systems::LeafSystem<T> {
@@ -145,27 +147,23 @@ class TrajectoryOptimizer {
   }
 };
 
-/*
- * ref:
- * https://github.com/RobotLocomotion/drake/blob/last_sha_with_original_matlab/drake/examples/Glider/runDircolPerching.m
- */
-static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
-                                    PPoly& state_opt, PPoly& input_opt) {
-  const int kNumStates = TailsitterState<double>::K::kNumCoordinates;
-
-  TailsitterState<double> takeoff_state;
+static void get_perching_constraints(TailsitterState<double>& takeoff_state,
+                                     TailsitterState<double>& land_state,
+                                     TailsitterState<double>& land_tol,
+                                     TailsitterState<double>& state_l,
+                                     TailsitterState<double>& state_u,
+                                     TailsitterInput<double>& input_cost,
+                                     TailsitterState<double>& final_cost) {
   takeoff_state.set_x(-3.5);
   takeoff_state.set_z(0.1);
   takeoff_state.set_x_dot(1);
 
-  TailsitterState<double> land_state;
   land_state.set_x(0);
   land_state.set_z(0);
   land_state.set_theta(M_PI / 4);
   land_state.set_z_dot(-0.5);
   land_state.set_theta_dot(-0.5);
 
-  TailsitterState<double> land_tol;
   land_tol.set_x(kEps);
   land_tol.set_z(kEps);
   land_tol.set_theta(M_PI / 4);
@@ -174,32 +172,155 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   land_tol.set_z_dot(2);
   land_tol.set_theta_dot(kInf);
 
-  const double kPhiLimitL = -M_PI / 3, kPhiLimitU = M_PI / 3, kPhiDotLimit = 13;
-
-  TailsitterState<double> state_l;
   state_l.SetFromVector(VectorX<double>::Constant(kNumStates, -kInf));
   state_l.set_x(-4);
   state_l.set_z(-1);
   state_l.set_theta(-M_PI / 2);
-  state_l.set_phi(kPhiLimitL);
+  state_l.set_phi(Tailsitter<double>::kPhiLimitL);
 
-  TailsitterState<double> state_u;
   state_u.SetFromVector(VectorX<double>::Constant(kNumStates, kInf));
   state_u.set_x(1);
   state_u.set_z(1);
   state_u.set_theta(M_PI / 2);
-  state_u.set_phi(kPhiLimitU);
+  state_u.set_phi(Tailsitter<double>::kPhiLimitU);
+
+  input_cost.set_phi_dot(100);
+  input_cost.set_prop_throttle(100);
+
+  final_cost.set_x(10);
+  final_cost.set_z(10);
+  final_cost.set_theta(1);
+  final_cost.set_phi(10);
+  final_cost.set_x_dot(1);
+  final_cost.set_z_dot(1);
+  final_cost.set_theta_dot(1);
+}
+
+static void get_climb_constraints(TailsitterState<double>& takeoff_state,
+                                  TailsitterState<double>& land_state,
+                                  TailsitterState<double>& land_tol,
+                                  TailsitterState<double>& state_l,
+                                  TailsitterState<double>& state_u,
+                                  TailsitterInput<double>& input_cost,
+                                  TailsitterState<double>& final_cost) {
+  takeoff_state.set_z(-1.0);
+  land_state.set_z(1.0);
+  takeoff_state.set_theta(M_PI / 2);
+  land_state.set_theta(M_PI / 2);
+
+  land_tol.set_x(0.05);
+  land_tol.set_z(0.05);
+  land_tol.set_theta(0.1);
+  land_tol.set_phi(kInf);
+  land_tol.set_x_dot(0.05);
+  land_tol.set_z_dot(0.05);
+  land_tol.set_theta_dot(0.05);
+
+  state_l.SetFromVector(VectorX<double>::Constant(kNumStates, -kInf));
+  state_u.SetFromVector(VectorX<double>::Constant(kNumStates, kInf));
+  state_l.set_z(-2);
+  state_u.set_z(2);
+  state_l.set_x(-2);
+  state_u.set_x(2);
+  state_l.set_theta(M_PI / 4);
+  state_u.set_theta(3 * M_PI / 4);
+  state_l.set_phi(Tailsitter<double>::kPhiLimitL);
+  state_u.set_phi(Tailsitter<double>::kPhiLimitU);
+
+  input_cost.set_phi_dot(100);
+  input_cost.set_prop_throttle(100);
+
+  final_cost.set_x(10);
+  final_cost.set_z(10);
+  final_cost.set_theta(1);
+  final_cost.set_phi(10);
+  final_cost.set_x_dot(1);
+  final_cost.set_z_dot(1);
+  final_cost.set_theta_dot(1);
+}
+
+static void get_transistion_constraints(TailsitterState<double>& takeoff_state,
+                                        TailsitterState<double>& land_state,
+                                        TailsitterState<double>& land_tol,
+                                        TailsitterState<double>& state_l,
+                                        TailsitterState<double>& state_u,
+                                        TailsitterInput<double>& input_cost,
+                                        TailsitterState<double>& final_cost) {
+  takeoff_state.set_theta(M_PI / 2);
+
+  land_state.set_x(5);
+  land_tol.set_x(5);
+  land_state.set_z(5);
+  land_tol.set_z(5);
+  land_state.set_z_dot(0);
+  land_tol.set_z_dot(0.001);
+  land_state.set_x_dot(6);
+  land_tol.set_x_dot(0.05);
+  land_state.set_theta(M_PI / 8);
+  land_tol.set_theta(M_PI / 8);
+  land_state.set_theta_dot(0);
+  land_tol.set_theta_dot(0.001);
+  land_tol.set_phi(kInf);
+
+  state_l.SetFromVector(VectorX<double>::Constant(kNumStates, -kInf));
+  state_u.SetFromVector(VectorX<double>::Constant(kNumStates, kInf));
+  state_l.set_z(-1);
+  state_u.set_z(10);
+  state_l.set_x(-1);
+  state_u.set_x(10);
+  state_l.set_theta(-M_PI / 4);
+  state_u.set_theta(3 * M_PI / 4);
+  state_l.set_phi(Tailsitter<double>::kPhiLimitL);
+  state_u.set_phi(Tailsitter<double>::kPhiLimitU);
+
+  input_cost.set_phi_dot(100);
+  input_cost.set_prop_throttle(100);
+
+  final_cost.set_x(1);
+  final_cost.set_z(1);
+  final_cost.set_theta(10);
+  final_cost.set_phi(10);
+  final_cost.set_x_dot(10);
+  final_cost.set_z_dot(10);
+  final_cost.set_theta_dot(10);
+}
+
+enum Trajectory { Perch, Climb, Hover, Transistion };
+
+/*
+ * ref:
+ * https://github.com/RobotLocomotion/drake/blob/last_sha_with_original_matlab/drake/examples/Glider/runDircolPerching.m
+ */
+static void get_trajectory(const Trajectory& trajectory,
+                           const Tailsitter<double>& tailsitter,
+                           PPoly& state_opt, PPoly& input_opt) {
+  TailsitterState<double> takeoff_state, land_state, land_tol, state_l, state_u;
+  TailsitterInput<double> input_cost;
+  TailsitterState<double> final_state_cost;
+
+  switch (trajectory) {
+    case Perch:
+      get_perching_constraints(takeoff_state, land_state, land_tol, state_l,
+                               state_u, input_cost, final_state_cost);
+      break;
+    case Climb:
+      get_climb_constraints(takeoff_state, land_state, land_tol, state_l,
+                            state_u, input_cost, final_state_cost);
+      break;
+    case Transistion:
+      get_transistion_constraints(takeoff_state, land_state, land_tol, state_l,
+                                  state_u, input_cost, final_state_cost);
+      break;
+    default:
+      log()->error(fmt::format("{} trajectory not implemented", trajectory));
+      throw;
+  }
 
   TailsitterInput<double> input_l, input_u;
-  input_l.set_phi_dot(-kPhiDotLimit);
-  input_u.set_phi_dot(kPhiDotLimit);
+  input_l.set_phi_dot(-Tailsitter<double>::kPhiDotLimit);
+  input_u.set_phi_dot(Tailsitter<double>::kPhiDotLimit);
   input_l.set_prop_throttle(0);
   input_u.set_prop_throttle(1);
-
-  const Vector2<double> kRunningCost(100, 100);
-  // todo: replace with tsState as can cause indexing bugs
-  const auto kFinalCost =
-      (VectorX<double>(kNumStates) << 10, 10, 1, 10, 1, 1, 1).finished();
 
   TrajectoryOptimizer traj_optimizer(tailsitter);
 
@@ -209,8 +330,8 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   traj_optimizer.bound_state(state_l.CopyToVector(), state_u.CopyToVector());
   traj_optimizer.bound_input(input_l.CopyToVector(), input_u.CopyToVector());
 
-  traj_optimizer.add_running_cost(kRunningCost);
-  traj_optimizer.add_final_cost(kFinalCost);
+  traj_optimizer.add_running_cost(input_cost.CopyToVector());
+  traj_optimizer.add_final_cost(final_state_cost.CopyToVector());
 
   traj_optimizer.get_optimum_trajectories(state_opt, input_opt);
 
@@ -235,11 +356,11 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
  * tutorial on unique_ptr:
  * https://thispointer.com/c11-unique_ptr-tutorial-and-examples/
  */
-void simulate_perch() {
+void simulate_trajectory(const Trajectory& trajectory) {
   systems::DiagramBuilder<double> builder;
   auto tailsitter = builder.AddSystem<Tailsitter>();
   PPoly state_opt, input_opt;
-  get_perching_trajectory(*tailsitter, state_opt, input_opt);
+  get_trajectory(trajectory, *tailsitter, state_opt, input_opt);
 
   auto ts_controller =
       builder.AddSystem<TailsitterController<double>>(input_opt);
@@ -264,6 +385,7 @@ int main(int argc, char* argv[]) {
   gflags::SetUsageMessage("Trajectory optimization for perching tailsitter.");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   drake::logging::set_log_level("info");
-  drake::examples::tailsitter::simulate_perch();
+  drake::examples::tailsitter::simulate_trajectory(
+      drake::examples::tailsitter::Transistion);
   return 0;
 }
