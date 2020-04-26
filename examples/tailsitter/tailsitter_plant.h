@@ -23,6 +23,8 @@ class Tailsitter final : public systems::LeafSystem<T> {
   static constexpr double kTailS = 0.0147, kWingS = 0.0885;
   static constexpr double kLe = 0.022, kL = 0.27, kLw = 0.0;
   static constexpr double kPropDiameter = kL / 2,
+                          kPropArea =
+                              (M_PI * kPropDiameter * kPropDiameter) / 4,
                           kThrustMax = 1.6 * (kMass * kG);
 
  public:
@@ -73,12 +75,13 @@ class Tailsitter final : public systems::LeafSystem<T> {
     get_plate_forces_and_torques(
         Vector2<T>(q.x_dot(), q.z_dot()) - prop_downwash, q.theta(),
         q.theta_dot(), Vector2<T>(-kLw, 0), kWingS, 0, 0, 0, F_w, T_w);
+
     get_plate_forces_and_torques(
         Vector2<T>(q.x_dot(), q.z_dot()) - prop_downwash, q.theta(),
         q.theta_dot(), Vector2<T>(-kL, 0), kTailS, kLe, q.phi(),
         input.phi_dot(), F_e, T_e);
 
-    Vector2<T> pos_ddot = (F_p, F_w + F_e + F_g) / kMass;
+    Vector2<T> pos_ddot = (F_p + F_w + F_e + F_g) / kMass;
     T theta_ddot = (T_w + T_e) / kInertia;
 
     TailsitterState<T>& q_dot = get_mutable_state(derivatives);
@@ -97,7 +100,7 @@ class Tailsitter final : public systems::LeafSystem<T> {
                                                Vector2<T>& downwash_vel_I) {
     Vector2<T> force_B = Vector2<T>(throttle * kThrustMax, 0);
     downwash_vel_I =
-        rotate(Vector2<T>(-sqrt((2 * force_B(0)) / (kRho * kPropDiameter)), 0),
+        rotate(Vector2<T>(-sqrt((2 * force_B(0)) / (kRho * kPropArea)), 0),
                parent_theta);
     force_I = rotate(force_B, parent_theta);
   }
@@ -113,30 +116,37 @@ class Tailsitter final : public systems::LeafSystem<T> {
       Vector2<T>& force_I, T& torque_B) {
     Vector2<T> plate_pos_dot =
         parent_pos_dot +
-        rotate(cross(joint_pos, parent_theta_dot), parent_theta) +
-        rotate(cross(Vector2<T>(-plate_com_dist, 0),
-                     plate_theta_dot + parent_theta_dot),
+        rotate(cross(parent_theta_dot, joint_pos), parent_theta) +
+        rotate(cross(plate_theta_dot + parent_theta_dot,
+                     Vector2<T>(-plate_com_dist, 0)),
                plate_theta + parent_theta);
 
     T attack_angle = parent_theta + plate_theta - get_angle(plate_pos_dot);
+    // https://groups.csail.mit.edu/robotics-center/public_papers/Roberts09.pdf
     Vector2<T> force_W =
         Vector2<T>(0, kRho * sin(attack_angle) * plate_surface_area *
                           get_norm_squared(plate_pos_dot));
 
+    // rotation inverse
     force_I = rotate(force_W, parent_theta + plate_theta);
     torque_B =
-        cross(joint_pos + rotate(Vector2<T>(plate_com_dist, 0), plate_theta),
+        cross(joint_pos + rotate(Vector2<T>(-plate_com_dist, 0), plate_theta),
               force_W);
   }
 
-  // y is in k cap
+  // b is in k cap
   static Vector2<T> cross(const Vector2<T>& a, const T& b) {
-    return Vector2<T>(-a(1) * b, a(0) * b);
+    return Vector2<T>(a(1) * b, -a(0) * b);
+  }
+
+  // a is in k cap
+  static Vector2<T> cross(const T& a, const Vector2<T>& b) {
+    return Vector2<T>(-a * b(1), a * b(0));
   }
 
   static T cross(const Vector2<T>& a, const Vector2<T>& b) {
-    // returns y cap component
-    return -a(0) * b(1) + a(1) * b(0);
+    // returns k cap component
+    return a(0) * b(1) - a(1) * b(0);
   }
 
   static Vector2<T> rotate(const Vector2<T>& x, const T& theta) {

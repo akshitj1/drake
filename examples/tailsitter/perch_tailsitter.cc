@@ -1,4 +1,5 @@
 #include "limits"
+#include <iomanip>
 
 #include <fmt/format.h>
 
@@ -9,6 +10,7 @@
 #include "drake/examples/tailsitter/gen/tailsitter_input.h"
 #include "drake/examples/tailsitter/gen/tailsitter_state.h"
 #include "drake/examples/tailsitter/tailsitter_plant.h"
+#include "drake/solvers/ipopt_solver.h"
 #include "drake/solvers/solve.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -112,7 +114,9 @@ class TrajectoryOptimizer {
 
     auto state_traj = PPoly::FirstOrderHold(
         {0, traj_duration}, {intitial_state_des + eps, final_state_des});
-    auto input_traj = PPoly();
+    auto input_traj = PPoly::ZeroOrderHold(
+        {0, traj_duration},
+        {Vector2<double>(0, 0.5), Vector2<double>(0, 0.5)});  // PPoly();
 
     optimizer.SetInitialTrajectory(input_traj, state_traj);
   }
@@ -123,23 +127,21 @@ class TrajectoryOptimizer {
     set_trajectory_guess();
     optimizer.AddDurationBounds(0, max_traj_time);
 
+    optimizer.SetSolverOption(solvers::IpoptSolver::id(), "print_level", 5);
+
     log()->info("computing optimal perching trajectory...");
     const auto result = solvers::Solve(optimizer);
 
     if (!result.is_success()) {
-      throw result.get_solver_id().name() +
-          " Failed to solve optimization while finding optimum trajectory";
+      log()->error(
+          "{} Failed to solve optimization while finding optimum trajectory",
+          result.get_solver_id().name());
+      throw;
     }
     log()->info("found optimal perching trajectory...");
 
     state_opt = optimizer.ReconstructStateTrajectory(result);
     input_opt = optimizer.ReconstructInputTrajectory(result);
-
-    for (auto t : state_opt.get_segment_times()) {
-      log()->info(fmt::format("state: {}\tinput: {}\n",
-                              state_opt.value(t).transpose(),
-                              input_opt.value(t).transpose()));
-    }
   }
 };
 
@@ -154,7 +156,7 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   TailsitterState<double> takeoff_state;
   takeoff_state.set_x(-3.5);
   takeoff_state.set_z(0.1);
-  takeoff_state.set_x_dot(7);
+  takeoff_state.set_x_dot(1);
 
   TailsitterState<double> land_state;
   land_state.set_x(0);
@@ -211,6 +213,15 @@ static void get_perching_trajectory(const Tailsitter<double>& tailsitter,
   traj_optimizer.add_final_cost(kFinalCost);
 
   traj_optimizer.get_optimum_trajectories(state_opt, input_opt);
+
+  Eigen::IOFormat CommaInitFmt(Eigen::StreamPrecision);
+
+  for (auto t : state_opt.get_segment_times()) {
+    std::cout << std::fixed << std::setprecision(2) << t << "\t\t"
+              << state_opt.value(t).transpose().format(CommaInitFmt) << "\t\t"
+              << input_opt.value(t).transpose().format(CommaInitFmt)
+              << std::endl;
+  }
 
   TailsitterState<double> final_state;
   final_state.SetFromVector(state_opt.value(state_opt.end_time()));
