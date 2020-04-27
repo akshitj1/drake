@@ -1,0 +1,38 @@
+namespace: drake::examples::tailsitter
+
+elements:
+  -
+    name: x
+    doc: horizontal position
+    doc_units: m
+    default_value: 0.0
+  -
+    name: z
+    doc: vertical position
+    doc_units: m
+    default_value: 0.0
+  -
+    name: theta
+    doc: orientation
+    doc_units: rad
+    default_value: 0.0
+  -
+    name: phi
+    doc: elevon deflection
+    doc_units: rad
+    default_value: 0.0
+  -
+    name: x_dot
+    doc: dx/dt
+    doc_units: m/s
+    default_value: 0.0
+  -
+    name: z_dot
+    doc: dz/dt
+    doc_units: m/s
+    default_value: 0.0
+  -
+    name: theta_dot
+    doc: angular velocity
+    doc_units: rad/s
+    default_value: 0.0

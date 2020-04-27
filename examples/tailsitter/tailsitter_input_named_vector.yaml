@@ -1,0 +1,12 @@
+namespace: drake::examples::tailsitter
+elements:
+  -
+    name: phi_dot
+    doc: elevon deflection rate
+    doc_units: rad/s
+    default_value: 0.0
+  -
+    name: prop_throttle
+    doc: nomalized propeller throttle
+    doc_units: 
+    default_value: 0.0
