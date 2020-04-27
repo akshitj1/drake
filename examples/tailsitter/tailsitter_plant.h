@@ -9,6 +9,8 @@
 namespace drake {
 namespace examples {
 namespace tailsitter {
+const int kNumStates = TailsitterState<double>::K::kNumCoordinates;
+const int kNumInputs = TailsitterInput<double>::K::kNumCoordinates;
 
 template <typename T>
 class Tailsitter final : public systems::LeafSystem<T> {

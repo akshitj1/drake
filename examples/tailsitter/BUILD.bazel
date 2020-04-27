@@ -15,6 +15,17 @@ package(
     ],
 )
 
+drake_cc_library(
+    name = "trajectory_optimizer",
+    srcs = [],
+    hdrs = ["trajectory_optimizer.h"],
+    deps = [
+        "//common/trajectories:piecewise_polynomial",
+        "//solvers:solve",
+        "//systems/trajectory_optimization:direct_collocation",
+    ],
+)
+
 drake_cc_vector_gen_library(
     name = "tailsitter_vector_types",
     srcs = [
@@ -25,10 +36,20 @@ drake_cc_vector_gen_library(
 )
 
 drake_cc_library(
+    name = "common",
+    srcs = [],
+    hdrs = ["common.h"],
+    deps = [
+        "//common/trajectories:piecewise_polynomial",
+    ],
+)
+
+drake_cc_library(
     name = "tailsitter_plant",
     srcs = ["tailsitter_plant.cc"],
     hdrs = ["tailsitter_plant.h"],
     deps = [
+        ":common",
         ":tailsitter_vector_types",
         "//common:default_scalars",
         "//math:geometric_transform",
@@ -36,17 +57,36 @@ drake_cc_library(
     ],
 )
 
+drake_cc_library(
+    name = "trajectory_generator",
+    srcs = [],
+    hdrs = ["trajectory_generator.h"],
+    deps = [
+        ":common",
+        ":tailsitter_plant",
+        ":trajectory_optimizer",
+    ],
+)
+
+drake_cc_library(
+    name = "tailsitter_controller",
+    srcs = [],
+    hdrs = ["tailsitter_controller.h"],
+    deps = [
+        ":common",
+        ":tailsitter_plant",
+    ],
+)
+
 drake_cc_binary(
     name = "perch_tailsitter",
     srcs = ["perch_tailsitter.cc"],
     deps = [
+        ":tailsitter_controller",
         ":tailsitter_plant",
-        "//common:default_scalars",
-        "//common/trajectories:piecewise_polynomial",
-        "//solvers:solve",
+        ":trajectory_generator",
         "//systems/analysis:simulator",
         "//systems/framework:diagram_builder",
-        "//systems/trajectory_optimization:direct_collocation",
         "@gflags",
     ],
 )
