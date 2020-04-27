@@ -15,10 +15,10 @@ GTEST_TEST(IntegratorTest, MiscAPI) {
   analysis_test::MySpringMassSystem<double> spring_mass(1., 1., 0.);
 
   // Setup integration step.
-  const double dt  = 1e-3;
+  const double h  = 1e-3;
 
   // Create the integrator.
-  RungeKutta2Integrator<double> integrator(spring_mass, dt);
+  RungeKutta2Integrator<double> integrator(spring_mass, h);
 
   // Test that setting the target accuracy fails.
   EXPECT_THROW(integrator.set_target_accuracy(1.0), std::logic_error);
@@ -44,10 +44,10 @@ GTEST_TEST(IntegratorTest, ContextAccess) {
   auto context = spring_mass.CreateDefaultContext();
 
   // Setup integration step.
-  const double dt  = 1e-3;
+  const double h  = 1e-3;
 
   // Create the integrator
-  RungeKutta2Integrator<double> integrator(spring_mass, dt, context.get());
+  RungeKutta2Integrator<double> integrator(spring_mass, h, context.get());
   integrator.get_mutable_context()->SetTime(3.);
   EXPECT_EQ(integrator.get_context().get_time(), 3.);
   EXPECT_EQ(context->get_time(), 3.);
@@ -57,16 +57,16 @@ GTEST_TEST(IntegratorTest, ContextAccess) {
 GTEST_TEST(IntegratorTest, ErrorEst) {
   // Spring-mass system is necessary only to setup the problem.
   SpringMassSystem<double> spring_mass(1., 1., 0.);
-  const double dt = 1e-3;
+  const double h = 1e-3;
   auto context = spring_mass.CreateDefaultContext();
   RungeKutta2Integrator<double> integrator(
-      spring_mass, dt, context.get());
+      spring_mass, h, context.get());
 
   EXPECT_EQ(integrator.get_error_estimate_order(), 0);
   EXPECT_EQ(integrator.supports_error_estimation(), false);
   EXPECT_THROW(integrator.set_fixed_step_mode(false), std::logic_error);
   EXPECT_THROW(integrator.set_target_accuracy(1e-1), std::logic_error);
-  EXPECT_THROW(integrator.request_initial_step_size_target(dt),
+  EXPECT_THROW(integrator.request_initial_step_size_target(h),
                std::logic_error);
 }
 
@@ -96,8 +96,8 @@ GTEST_TEST(IntegratorTest, SpringMassStep) {
   auto context = spring_mass.CreateDefaultContext();
 
   // Create the integrator.
-  const double dt = 1.0/1024;
-  RungeKutta2Integrator<double> integrator(spring_mass, dt, context.get());
+  const double h = 1.0/1024;
+  RungeKutta2Integrator<double> integrator(spring_mass, h, context.get());
 
   // Setup the initial position and initial velocity.
   const double initial_position = 0.1;
@@ -118,7 +118,7 @@ GTEST_TEST(IntegratorTest, SpringMassStep) {
   // Integrate for 1 second.
   const double t_final = 1.0;
   integrator.IntegrateWithMultipleStepsToTime(t_final);
-  EXPECT_NEAR(context->get_time(), t_final, dt);  // Should be exact.
+  EXPECT_NEAR(context->get_time(), t_final, h);  // Should be exact.
 
   // Get the final position and velocity.
   const VectorBase<double>& xc_final = context->get_continuous_state_vector();
@@ -135,15 +135,15 @@ GTEST_TEST(IntegratorTest, SpringMassStep) {
   EXPECT_NEAR(x_final_true, x_final, xtol);
 
   // Reclaim dense output and prevent further updates to it.
-  std::unique_ptr<DenseOutput<double>> dense_output =
+  std::unique_ptr<trajectories::PiecewisePolynomial<double>> dense_output =
       integrator.StopDenseIntegration();
 
   // Verify that the built dense output is valid.
-  for (double t = 0; t <= t_final; t += dt / 2.) {
+  for (double t = 0; t <= t_final; t += h / 2.) {
     double x_true, unused_v_true;
     spring_mass.GetClosedFormSolution(initial_position, initial_velocity,
                                       t, &x_true, &unused_v_true);
-    const VectorX<double> x = dense_output->Evaluate(t);
+    const VectorX<double> x = dense_output->value(t);
     EXPECT_NEAR(x_true, x(0), xtol);
   }
 
@@ -194,6 +194,29 @@ GTEST_TEST(RK3IntegratorErrorEstimatorTest, QuadraticTest) {
   EXPECT_NEAR(
       quadratic_context->get_continuous_state_vector()[0], expected_result,
       10 * std::numeric_limits<double>::epsilon());
+}
+
+GTEST_TEST(IntegratorTest, Symbolic) {
+  using symbolic::Expression;
+  using symbolic::Variable;
+
+  // Create the mass spring system.
+  SpringMassSystem<Expression> spring_mass(1., 1.);
+  // Set the maximum step size.
+  const double max_h = .01;
+  // Create a context.
+  auto context = spring_mass.CreateDefaultContext();
+  // Create the integrator.
+  RungeKutta2Integrator<Expression> integrator(
+      spring_mass, max_h, context.get());
+  integrator.Initialize();
+
+  const Variable q("q");
+  const Variable v("v");
+  const Variable work("work");
+  const Variable h("h");
+  context->SetContinuousState(Vector3<Expression>(q, v, work));
+  EXPECT_TRUE(integrator.IntegrateWithSingleFixedStepToTime(h));
 }
 
 }  // namespace

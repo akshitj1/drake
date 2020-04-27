@@ -1,5 +1,7 @@
 #include "drake/multibody/benchmarks/acrobot/make_acrobot_plant.h"
 
+#include <optional>
+
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/tree/revolute_joint.h"
 #include "drake/multibody/tree/uniform_gravity_field_element.h"
@@ -20,7 +22,7 @@ using drake::math::RigidTransformd;
 std::unique_ptr<MultibodyPlant<double>>
 MakeAcrobotPlant(const AcrobotParameters& params, bool finalize,
                  SceneGraph<double>* scene_graph) {
-  auto plant = std::make_unique<MultibodyPlant<double>>();
+  auto plant = std::make_unique<MultibodyPlant<double>>(0.0);
 
   // COM's positions in each link (L1/L2) frame:
   // Frame L1's origin is located at the shoulder outboard frame.

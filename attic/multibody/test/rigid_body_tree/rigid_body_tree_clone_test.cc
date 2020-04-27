@@ -64,20 +64,6 @@ TEST_F(RigidBodyTreeCloneTest, CloneAtlas) {
   EXPECT_TRUE(CompareToClone(*tree_));
 }
 
-// Tests RigidBodyTree::Clone() using Valkyrie.
-TEST_F(RigidBodyTreeCloneTest, CloneValkyrie) {
-  const std::string filename = FindResourceOrThrow(
-      "drake/examples/valkyrie/urdf/urdf/"
-      "valkyrie_A_sim_drake_one_neck_dof_wide_ankle_rom.urdf");
-  // While it may seem odd to use a fixed floating joint with Valkyrie, it is
-  // used in this case just to confirm that RigidBodyTree::Clone() works with
-  // this type of joint. Previous unit tests already cover the quaternion
-  // floating joint type.
-  AddModelInstanceFromUrdfFileToWorld(filename, multibody::joints::kFixed,
-      tree_.get());
-  EXPECT_TRUE(CompareToClone(*tree_));
-}
-
 class TestRbtCloneDiagram : public Diagram<double> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(TestRbtCloneDiagram);
@@ -176,11 +162,9 @@ TEST_F(RigidBodyTreeCloneTest, PendulumDynamicsTest) {
   // sufficient to test the original RigidBodyTree against its clone.
   const double integrator_step_size = swing_period / 100;
   original_simulator.reset_integrator<ExplicitEulerIntegrator<double>>(
-      original_diagram, integrator_step_size,
-      &original_simulator.get_mutable_context());
+      integrator_step_size);
   cloned_simulator.reset_integrator<ExplicitEulerIntegrator<double>>(
-      cloned_diagram, integrator_step_size,
-      &cloned_simulator.get_mutable_context());
+      integrator_step_size);
 
   original_simulator.Initialize();
   cloned_simulator.Initialize();

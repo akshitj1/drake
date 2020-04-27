@@ -64,8 +64,9 @@ GTEST_TEST(MeshFieldTest, TestClone) {
                          const MeshType::Cartesian&) const final {
       return FieldValue(0);
     }
+
    private:
-    DRAKE_NODISCARD std::unique_ptr<MeshFieldBase> DoCloneWithNullMesh() const
+    [[nodiscard]] std::unique_ptr<MeshFieldBase> DoCloneWithNullMesh() const
     final {
       return std::make_unique<MeshFieldSubclass>(*this);
     }

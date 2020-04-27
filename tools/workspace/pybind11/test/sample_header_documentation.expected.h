@@ -65,7 +65,7 @@ Version:
     struct /* mkdoc_test */ {
       // Symbol: drake::mkdoc_test::AnonymousConstant
       struct /* AnonymousConstant */ {
-        // Source: drake/tools/workspace/pybind11/test/sample_header.h:376
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:374
         const char* doc = R"""(Anonymous enum's constant.)""";
       } AnonymousConstant;
       // Symbol: drake::mkdoc_test::Class
@@ -274,7 +274,7 @@ risus quis varius quam.)""";
       } Class;
       // Symbol: drake::mkdoc_test::DrakeDeprecatedClass
       struct /* DrakeDeprecatedClass */ {
-        // Source: drake/tools/workspace/pybind11/test/sample_header.h:381
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:379
         const char* doc_deprecated =
 R"""(I am measurably old. (Deprecated.)
 
@@ -283,7 +283,7 @@ Deprecated:
     after 2038-01-19.)""";
         // Symbol: drake::mkdoc_test::DrakeDeprecatedClass::a
         struct /* a */ {
-          // Source: drake/tools/workspace/pybind11/test/sample_header.h:394
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:392
           const char* doc_deprecated =
 R"""((Deprecated.)
 
@@ -293,14 +293,14 @@ Deprecated:
         } a;
         // Symbol: drake::mkdoc_test::DrakeDeprecatedClass::f
         struct /* f */ {
-          // Source: drake/tools/workspace/pybind11/test/sample_header.h:386
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:384
           const char* doc_deprecated_1args =
 R"""((Deprecated.)
 
 Deprecated:
     f() is slow; use g() instead. Also, I like hats. This will be
     removed from Drake on or after 2038-01-19.)""";
-          // Source: drake/tools/workspace/pybind11/test/sample_header.h:390
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:388
           const char* doc_deprecated_0args =
 R"""((Deprecated.)
 
@@ -311,7 +311,7 @@ Deprecated:
       } DrakeDeprecatedClass;
       // Symbol: drake::mkdoc_test::DrakeDeprecatedTemplateClass
       struct /* DrakeDeprecatedTemplateClass */ {
-        // Source: drake/tools/workspace/pybind11/test/sample_header.h:400
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:398
         const char* doc_deprecated =
 R"""(I am symbolically old. (Deprecated.)
 
@@ -339,10 +339,9 @@ R"""(Enumeration class. Malesuada fames ac turpis egestas integer eget
 aliquet nibh praesent.)""";
         // Symbol: drake::mkdoc_test::EnumClass::EnumClassConstant
         struct /* EnumClassConstant */ {
-          // Source: drake/tools/workspace/pybind11/test/sample_header.h:370
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:368
           const char* doc =
-R"""(Enumeration class constant. Vestibulum mattis ullamcorper velit sed
-ullamcorper.)""";
+R"""(Enumeration class constant. Vestibulum mattis.)""";
         } EnumClassConstant;
       } EnumClass;
       // Symbol: drake::mkdoc_test::Struct
@@ -432,6 +431,125 @@ Parameter ``param``:
       } func;
     } mkdoc_test;
   } drake;
+  // Symbol: namespace_1
+  struct /* namespace_1 */ {
+    // Symbol: namespace_1::namespace_2
+    struct /* namespace_2 */ {
+      // Symbol: namespace_1::namespace_2::DummyClass
+      struct /* DummyClass */ {
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:444
+        const char* doc = R"""()""";
+        // Symbol: namespace_1::namespace_2::DummyClass::Details
+        struct /* Details */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:449
+          const char* doc =
+R"""(Ligula. Nunc turpis. Mauris vitae sapien. Nunc.)""";
+        } Details;
+        // Symbol: namespace_1::namespace_2::DummyClass::DummyClass
+        struct /* ctor */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:446
+          const char* doc = R"""()""";
+        } ctor;
+        // Symbol: namespace_1::namespace_2::DummyClass::static_function_1
+        struct /* static_function_1 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:457
+          const char* doc = R"""()""";
+        } static_function_1;
+        // Symbol: namespace_1::namespace_2::DummyClass::static_function_2
+        struct /* static_function_2 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:458
+          const char* doc = R"""()""";
+        } static_function_2;
+        // Symbol: namespace_1::namespace_2::DummyClass::struct_2
+        struct /* struct_2 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:456
+          const char* doc = R"""()""";
+        } struct_2;
+      } DummyClass;
+      // Symbol: namespace_1::namespace_2::Struct1
+      struct /* Struct1 */ {
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:419
+        const char* doc =
+R"""(Quam odio at est.
+
+Proin eleifend nisi et nibh. Maecenas a lacus. Mauris porta quam non
+massa molestie scelerisque. Nulla sed ante at lorem suscipit rutrum.
+Nam quis tellus. Cras elit nisi, ornare a, condimentum vitae, rutrum
+sit amet, tellus. Maecenas)""";
+        // Symbol: namespace_1::namespace_2::Struct1::var_1
+        struct /* var_1 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:421
+          const char* doc =
+R"""(Et, ornare sagittis, tellus. Fusce felis.)""";
+        } var_1;
+        // Symbol: namespace_1::namespace_2::Struct1::var_2
+        struct /* var_2 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:423
+          const char* doc = R"""(Nulla a augue. Pellentesque sed est.)""";
+        } var_2;
+        // Symbol: namespace_1::namespace_2::Struct1::var_3
+        struct /* var_3 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:425
+          const char* doc = R"""(Imperdiet tristique, interdum a, dolor.)""";
+        } var_3;
+        // Symbol: namespace_1::namespace_2::Struct1::var_4
+        struct /* var_4 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:427
+          const char* doc =
+R"""(Tempor lobortis turpis. Sed tellus velit, ullamcorper.)""";
+        } var_4;
+        // Symbol: namespace_1::namespace_2::Struct1::var_5
+        struct /* var_5 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:429
+          const char* doc =
+R"""(Id, rutrum auctor, ullamcorper sed, orci. In.)""";
+        } var_5;
+        // Symbol: namespace_1::namespace_2::Struct1::var_6
+        struct /* var_6 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:431
+          const char* doc =
+R"""(Fames ac turpis egestas. Sed vitae eros. Nulla.)""";
+        } var_6;
+        // Symbol: namespace_1::namespace_2::Struct1::var_7
+        struct /* var_7 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:433
+          const char* doc =
+R"""(Condimentum. Donec arcu quam, dictum accumsan, convallis.)""";
+        } var_7;
+        // Symbol: namespace_1::namespace_2::Struct1::var_8
+        struct /* var_8 */ {
+          // Source: drake/tools/workspace/pybind11/test/sample_header.h:435
+          const char* doc =
+R"""(Volutpat. Donec non tortor. Vivamus posuere nisi mollis.)""";
+        } var_8;
+      } Struct1;
+      // Symbol: namespace_1::namespace_2::Struct2
+      struct /* Struct2 */ {
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:438
+        const char* doc = R"""()""";
+      } Struct2;
+      // Symbol: namespace_1::namespace_2::Struct3
+      struct /* Struct3 */ {
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:439
+        const char* doc = R"""()""";
+      } Struct3;
+      // Symbol: namespace_1::namespace_2::Struct4
+      struct /* Struct4 */ {
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:440
+        const char* doc = R"""()""";
+      } Struct4;
+      // Symbol: namespace_1::namespace_2::Struct5
+      struct /* Struct5 */ {
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:441
+        const char* doc = R"""()""";
+      } Struct5;
+      // Symbol: namespace_1::namespace_2::Struct6
+      struct /* Struct6 */ {
+        // Source: drake/tools/workspace/pybind11/test/sample_header.h:442
+        const char* doc = R"""()""";
+      } Struct6;
+    } namespace_2;
+  } namespace_1;
 } sample_header_doc;
 
 #if defined(__GNUG__)

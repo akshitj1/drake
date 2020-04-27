@@ -16,9 +16,9 @@ drake_cc_package_library(
     name = "tree",
     deps = [
         ":articulated_body_inertia",
+        ":multibody_element",
         ":multibody_tree_caches",
         ":multibody_tree_core",
-        ":multibody_tree_element",
         ":multibody_tree_indexes",
         ":multibody_tree_topology",
         ":rotational_inertia",
@@ -53,12 +53,14 @@ drake_cc_library(
     name = "multibody_tree_caches",
     srcs = [
         "acceleration_kinematics_cache.cc",
+        "articulated_body_force_cache.cc",
         "articulated_body_inertia_cache.cc",
         "position_kinematics_cache.cc",
         "velocity_kinematics_cache.cc",
     ],
     hdrs = [
         "acceleration_kinematics_cache.h",
+        "articulated_body_force_cache.h",
         "articulated_body_inertia_cache.h",
         "position_kinematics_cache.h",
         "velocity_kinematics_cache.h",
@@ -74,10 +76,10 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "multibody_tree_element",
+    name = "multibody_element",
     srcs = [],
     hdrs = [
-        "multibody_tree_element.h",
+        "multibody_element.h",
     ],
     deps = [
         ":multibody_tree_topology",
@@ -87,10 +89,13 @@ drake_cc_library(
 drake_cc_library(
     name = "multibody_tree_core",
     srcs = [
+        "ball_rpy_joint.cc",
         "body.cc",
         "body_node_impl.cc",
+        "door_hinge.cc",
         "fixed_offset_frame.cc",
         "joint_actuator.cc",
+        "linear_bushing_roll_pitch_yaw.cc",
         "linear_spring_damper.cc",
         "mobilizer_impl.cc",
         "model_instance.cc",
@@ -110,16 +115,19 @@ drake_cc_library(
         "weld_mobilizer.cc",
     ],
     hdrs = [
+        "ball_rpy_joint.h",
         "body.h",
         "body_node.h",
         "body_node_impl.h",
         "body_node_welded.h",
+        "door_hinge.h",
         "fixed_offset_frame.h",
         "force_element.h",
         "frame.h",
         "frame_base.h",
         "joint.h",
         "joint_actuator.h",
+        "linear_bushing_roll_pitch_yaw.h",
         "linear_spring_damper.h",
         "mobilizer.h",
         "mobilizer_impl.h",
@@ -144,8 +152,8 @@ drake_cc_library(
     # "//multibody/tree" broadly, not just ":multibody_tree_core".
     visibility = ["//visibility:private"],
     deps = [
+        ":multibody_element",
         ":multibody_tree_caches",
-        ":multibody_tree_element",
         ":multibody_tree_indexes",
         ":spatial_inertia",
         "//common:autodiff",
@@ -408,6 +416,7 @@ drake_cc_googletest(
     deps = [
         ":tree",
         "//common/test_utilities:expect_no_throw",
+        "//common/test_utilities:expect_throws_message",
         "//math:autodiff",
         "//math:gradient",
     ],
@@ -421,12 +430,34 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
-    name = "linear_spring_damper_test",
+    name = "linear_bushing_roll_pitch_yaw_test",
     deps = [
         ":tree",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_no_throw",
         "//common/test_utilities:expect_throws_message",
+        "//systems/framework",
+    ],
+)
+
+drake_cc_googletest(
+    name = "linear_spring_damper_test",
+    deps = [
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+        "//multibody/plant",
         "//systems/framework:context",
+    ],
+)
+
+drake_cc_googletest(
+    name = "door_hinge_test",
+    timeout = "moderate",
+    shard_count = 2,
+    deps = [
+        "//multibody/plant",
+        "//systems/analysis:initial_value_problem",
+        "//systems/analysis:simulator",
     ],
 )
 
@@ -441,6 +472,13 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "revolute_joint_test",
+    deps = [
+        ":tree",
+    ],
+)
+
+drake_cc_googletest(
+    name = "ball_rpy_joint_test",
     deps = [
         ":tree",
     ],

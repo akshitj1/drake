@@ -22,7 +22,7 @@ class Body;
 /// where θ₀ is the nominal joint position. Note that joint damping exists
 /// within the RevoluteJoint itself, and so is not included here.
 ///
-/// @tparam T Must be one of drake's default scalar types.
+/// @tparam_default_scalar
 template <typename T>
 class RevoluteSpring final : public ForceElement<T> {
  public:
@@ -38,7 +38,7 @@ class RevoluteSpring final : public ForceElement<T> {
   RevoluteSpring(const RevoluteJoint<T>& joint, double nominal_angle,
                  double stiffness);
 
-  const RevoluteJoint<T>& joint() const { return joint_; }
+  const RevoluteJoint<T>& joint() const;
 
   double nominal_angle() const { return nominal_angle_; }
 
@@ -75,12 +75,19 @@ class RevoluteSpring final : public ForceElement<T> {
       const internal::MultibodyTree<symbolic::Expression>&) const override;
 
  private:
+  // Allow different specializations to access each other's private data for
+  // scalar conversion.
+  template <typename U> friend class RevoluteSpring;
+
+  RevoluteSpring(ModelInstanceIndex model_instance, JointIndex joint_index,
+                 double nominal_angle, double stiffness);
+
   // Helper method to make a clone templated on ToScalar().
   template <typename ToScalar>
   std::unique_ptr<ForceElement<ToScalar>> TemplatedDoCloneToScalar(
       const internal::MultibodyTree<ToScalar>& tree_clone) const;
 
-  const RevoluteJoint<T>& joint_;
+  const JointIndex joint_index_;
   double nominal_angle_;
   double stiffness_;
 };

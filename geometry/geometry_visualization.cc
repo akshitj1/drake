@@ -69,16 +69,24 @@ class ShapeToLcm : public ShapeReifier {
     geometry_data_.type = geometry_data_.SPHERE;
     geometry_data_.num_float_data = 1;
     geometry_data_.float_data.push_back(static_cast<float>(
-                                            sphere.get_radius()));
+                                            sphere.radius()));
+  }
+
+  void ImplementGeometry(const Ellipsoid& ellipsoid, void*) override {
+    geometry_data_.type = geometry_data_.ELLIPSOID;
+    geometry_data_.num_float_data = 3;
+    geometry_data_.float_data.push_back(static_cast<float>(ellipsoid.a()));
+    geometry_data_.float_data.push_back(static_cast<float>(ellipsoid.b()));
+    geometry_data_.float_data.push_back(static_cast<float>(ellipsoid.c()));
   }
 
   void ImplementGeometry(const Cylinder& cylinder, void*) override {
     geometry_data_.type = geometry_data_.CYLINDER;
     geometry_data_.num_float_data = 2;
     geometry_data_.float_data.push_back(static_cast<float>(
-                                            cylinder.get_radius()));
+                                            cylinder.radius()));
     geometry_data_.float_data.push_back(static_cast<float>(
-                                            cylinder.get_length()));
+                                            cylinder.length()));
   }
 
   void ImplementGeometry(const HalfSpace&, void*) override {
@@ -113,9 +121,9 @@ class ShapeToLcm : public ShapeReifier {
     geometry_data_.type = geometry_data_.CAPSULE;
     geometry_data_.num_float_data = 2;
     geometry_data_.float_data.push_back(
-        static_cast<float>(capsule.get_radius()));
+        static_cast<float>(capsule.radius()));
     geometry_data_.float_data.push_back(
-        static_cast<float>(capsule.get_length()));
+        static_cast<float>(capsule.length()));
   }
 
   void ImplementGeometry(const Mesh& mesh, void*) override {
@@ -236,7 +244,7 @@ lcmt_viewer_load_robot GeometryVisualizationImpl::BuildLoadMessage(
     const int geometry_count = pair.second;
     const internal::InternalFrame& frame = state.frames_.at(frame_id);
     SourceId s_id = state.get_source_id(frame.id());
-    const std::string& src_name = state.get_source_name(s_id);
+    const std::string& src_name = state.GetName(s_id);
     // TODO(SeanCurtis-TRI): The name in the load message *must* match the name
     // in the update message. Make sure this code and the SceneGraph output
     // use a common code-base to translate (source_id, frame) -> name.

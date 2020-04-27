@@ -29,16 +29,16 @@ PYBIND11_MODULE(manipulation_station, m) {
   // ManipulationStation currently only supports double.
   using T = double;
 
-  py::enum_<IiwaCollisionModel>(m, "IiwaCollisionModel")
+  py::enum_<IiwaCollisionModel>(
+      m, "IiwaCollisionModel", doc.IiwaCollisionModel.doc)
       .value("kNoCollision", IiwaCollisionModel::kNoCollision,
           doc.IiwaCollisionModel.kNoCollision.doc)
       .value("kBoxCollision", IiwaCollisionModel::kBoxCollision,
           doc.IiwaCollisionModel.kBoxCollision.doc)
       .export_values();
 
-  // TODO(siyuan.feng): Add RegisterRgbdCamera when we have bindings for
-  // creating a geometry::dev::render::DepthCameraProperties struct.
-  py::class_<ManipulationStation<T>, Diagram<T>>(m, "ManipulationStation")
+  py::class_<ManipulationStation<T>, Diagram<T>>(
+      m, "ManipulationStation", doc.ManipulationStation.doc)
       .def(py::init<double>(), py::arg("time_step") = 0.002,
           doc.ManipulationStation.ctor.doc)
       .def("SetupManipulationClassStation",
@@ -50,6 +50,9 @@ PYBIND11_MODULE(manipulation_station, m) {
           py::arg("X_WCameraBody") = std::nullopt,
           py::arg("collision_model") = IiwaCollisionModel::kNoCollision,
           doc.ManipulationStation.SetupClutterClearingStation.doc)
+      .def("SetupPlanarIiwaStation",
+          &ManipulationStation<T>::SetupPlanarIiwaStation,
+          doc.ManipulationStation.SetupPlanarIiwaStation.doc)
       .def("AddManipulandFromFile",
           &ManipulationStation<T>::AddManipulandFromFile, py::arg("model_file"),
           py::arg("X_WObject"),
@@ -57,11 +60,15 @@ PYBIND11_MODULE(manipulation_station, m) {
       .def("RegisterIiwaControllerModel",
           &ManipulationStation<T>::RegisterIiwaControllerModel,
           doc.ManipulationStation.RegisterIiwaControllerModel.doc)
+      .def("RegisterRgbdSensor", &ManipulationStation<T>::RegisterRgbdSensor,
+          doc.ManipulationStation.RegisterRgbdSensor.doc)
       .def("RegisterWsgControllerModel",
           &ManipulationStation<T>::RegisterWsgControllerModel,
           doc.ManipulationStation.RegisterWsgControllerModel.doc)
       .def("Finalize", py::overload_cast<>(&ManipulationStation<T>::Finalize),
           doc.ManipulationStation.Finalize.doc_0args)
+      .def("num_iiwa_joints", &ManipulationStation<T>::num_iiwa_joints,
+          doc.ManipulationStation.num_iiwa_joints.doc)
       .def("get_multibody_plant", &ManipulationStation<T>::get_multibody_plant,
           py_reference_internal,
           doc.ManipulationStation.get_multibody_plant.doc)
@@ -160,8 +167,9 @@ PYBIND11_MODULE(manipulation_station, m) {
           &ManipulationStation<T>::SetIiwaIntegralGains,
           doc.ManipulationStation.SetIiwaIntegralGains.doc);
 
-  py::class_<ManipulationStationHardwareInterface, Diagram<double>>(
-      m, "ManipulationStationHardwareInterface")
+  py::class_<ManipulationStationHardwareInterface, Diagram<double>>(m,
+      "ManipulationStationHardwareInterface",
+      doc.ManipulationStationHardwareInterface.doc)
       .def(py::init<const std::vector<std::string>>(),
           py::arg("camera_names") = std::vector<std::string>{},
           doc.ManipulationStationHardwareInterface.ctor.doc)

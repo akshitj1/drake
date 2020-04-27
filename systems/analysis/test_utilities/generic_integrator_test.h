@@ -74,33 +74,43 @@ TYPED_TEST_P(GenericIntegratorTest, DenseOutput) {
   // Arbitrary step, valid as long as it doesn't match the same
   // steps taken by the integrator. Otherwise, dense output accuracy
   // would not be checked.
-  const double dt = 0.01;
-  const int n_steps = (t_final / dt);
+  const double h = 0.01;
+  const int n_steps = (t_final / h);
   for (int i = 1; i <= n_steps; ++i) {
     // Integrate the whole step.
-    this->integrator_->IntegrateWithMultipleStepsToTime(i * dt);
+    this->integrator_->IntegrateWithMultipleStepsToTime(i * h);
 
     // Check solution.
     EXPECT_TRUE(CompareMatrices(
-        this->integrator_->get_dense_output()->Evaluate(
+        this->integrator_->get_dense_output()->value(
             this->context_->get_time()),
         this->plant_->GetPositionsAndVelocities(*this->context_),
         this->integrator_->get_accuracy_in_use(), MatrixCompareType::relative));
   }
 
   // Stop undergoing dense integration.
-  std::unique_ptr<systems::DenseOutput<double>> dense_output =
+  std::unique_ptr<trajectories::PiecewisePolynomial<double>> dense_output =
       this->integrator_->StopDenseIntegration();
   EXPECT_FALSE(this->integrator_->get_dense_output());
 
   // Integrate one more step.
-  this->integrator_->IntegrateWithMultipleStepsToTime(t_final + dt);
+  this->integrator_->IntegrateWithMultipleStepsToTime(t_final + h);
 
   // Verify that the dense output was not updated.
   EXPECT_LT(dense_output->end_time(), this->context_->get_time());
 }
 
-REGISTER_TYPED_TEST_SUITE_P(GenericIntegratorTest, DenseOutput);
+// Confirm that integration supports times < 0.
+TYPED_TEST_P(GenericIntegratorTest, NegativeTime) {
+  this->integrator_->set_maximum_step_size(0.1);
+  this->integrator_->set_target_accuracy(1e-5);
+  this->integrator_->Initialize();
+  this->context_->SetTime(-1.0);
+  this->integrator_->IntegrateWithMultipleStepsToTime(-0.5);
+  EXPECT_EQ(this->context_->get_time(), -0.5);
+}
+
+REGISTER_TYPED_TEST_SUITE_P(GenericIntegratorTest, DenseOutput, NegativeTime);
 
 }  // namespace analysis_test
 }  // namespace systems

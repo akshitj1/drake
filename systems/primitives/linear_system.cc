@@ -91,21 +91,13 @@ std::unique_ptr<AffineSystem<double>> DoFirstOrderTaylorApproximation(
     std::variant<InputPortSelection, InputPortIndex> input_port_index,
     std::variant<OutputPortSelection, OutputPortIndex> output_port_index,
     std::optional<double> equilibrium_check_tolerance = std::nullopt) {
-  DRAKE_ASSERT_VOID(system.CheckValidContext(context));
-
-  const bool has_only_discrete_states_contained_in_one_group =
-      context.has_only_discrete_state() &&
-      context.num_discrete_state_groups() == 1;
-  DRAKE_DEMAND(context.is_stateless() || context.has_only_continuous_state() ||
-               has_only_discrete_states_contained_in_one_group);
+  system.ValidateContext(context);
 
   double time_period = 0.0;
-  if (has_only_discrete_states_contained_in_one_group) {
-    std::optional<PeriodicEventData> periodic_data =
-        system.GetUniquePeriodicDiscreteUpdateAttribute();
-    DRAKE_THROW_UNLESS(static_cast<bool>(periodic_data));
-    time_period = periodic_data->period_sec();
-  }
+  const bool is_discrete_system =
+      system.IsDifferenceEquationSystem(&time_period);
+  DRAKE_THROW_UNLESS(context.is_stateless() ||
+                     context.has_only_continuous_state() || is_discrete_system);
 
   // Create an autodiff version of the system.
   std::unique_ptr<System<AutoDiffXd>> autodiff_system =
@@ -148,10 +140,8 @@ std::unique_ptr<AffineSystem<double>> DoFirstOrderTaylorApproximation(
 
   auto autodiff_args = math::initializeAutoDiffTuple(x0, u0);
   if (input_port) {
-    auto input_vector = std::make_unique<BasicVector<AutoDiffXd>>(num_inputs);
-    input_vector->SetFromVector(std::get<1>(autodiff_args));
-    autodiff_context->FixInputPort(input_port->get_index(),
-                                   std::move(input_vector));
+    VectorX<AutoDiffXd> input_vector = std::get<1>(autodiff_args);
+    input_port->FixValue(autodiff_context.get(), input_vector);
   }
 
   Eigen::MatrixXd A(num_states, num_states), B(num_states, num_inputs);
@@ -185,7 +175,7 @@ std::unique_ptr<AffineSystem<double>> DoFirstOrderTaylorApproximation(
 
       f0 = xdot0 - A * x0 - B * u0;
     } else {
-      DRAKE_ASSERT(has_only_discrete_states_contained_in_one_group);
+      DRAKE_ASSERT(is_discrete_system);
       auto& autodiff_x0 =
           autodiff_context->get_mutable_discrete_state().get_mutable_vector();
       autodiff_x0.SetFromVector(std::get<0>(autodiff_args));

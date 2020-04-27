@@ -42,19 +42,6 @@ bool operator<(ExpressionKind k1, ExpressionKind k2) {
 }
 
 namespace {
-// This function is used in Expression(const double d) constructor. It turns out
-// a ternary expression "std::isnan(d) ? make_shared<ExpressionNaN>() :
-// make_shared<ExpressionConstant>()" does not work due to C++'s
-// type-system. It throws "Incompatible operand types when using ternary
-// conditional operator" error. Related S&O entry:
-// http://stackoverflow.com/questions/29842095/incompatible-operand-types-when-using-ternary-conditional-operator.
-shared_ptr<ExpressionCell> make_cell(const double d) {
-  if (std::isnan(d)) {
-    return make_shared<ExpressionNaN>();
-  }
-  return make_shared<ExpressionConstant>(d);
-}
-
 // Negates an addition expression.
 // - (E_1 + ... + E_n) => (-E_1 + ... + -E_n)
 Expression NegateAddition(const Expression& e) {
@@ -69,6 +56,20 @@ Expression NegateMultiplication(const Expression& e) {
   return ExpressionMulFactory{to_multiplication(e)}.Negate().GetExpression();
 }
 }  // namespace
+
+shared_ptr<ExpressionCell> Expression::make_cell(const double d) {
+  if (d == 0.0) {
+    // The objects created by `Expression(0.0)` share the unique
+    // `ExpressionConstant` object created in `Expression::Zero()`.
+    //
+    // See https://github.com/RobotLocomotion/drake/issues/12453 for details.
+    return Expression::Zero().ptr_;
+  }
+  if (std::isnan(d)) {
+    return make_shared<ExpressionNaN>();
+  }
+  return make_shared<ExpressionConstant>(d);
+}
 
 Expression::Expression(const Variable& var)
     : ptr_{make_shared<ExpressionVar>(var)} {}
@@ -88,22 +89,26 @@ void Expression::HashAppend(DelegatingHasher* hasher) const {
 }
 
 Expression Expression::Zero() {
-  static const never_destroyed<Expression> zero{0.0};
+  static const never_destroyed<Expression> zero{
+      Expression{make_shared<ExpressionConstant>(0.0)}};
   return zero.access();
 }
 
 Expression Expression::One() {
-  static const never_destroyed<Expression> one{1.0};
+  static const never_destroyed<Expression> one{
+      Expression{make_shared<ExpressionConstant>(1.0)}};
   return one.access();
 }
 
 Expression Expression::Pi() {
-  static const never_destroyed<Expression> pi{M_PI};
+  static const never_destroyed<Expression> pi{
+      Expression{make_shared<ExpressionConstant>(M_PI)}};
   return pi.access();
 }
 
 Expression Expression::E() {
-  static const never_destroyed<Expression> e{M_E};
+  static const never_destroyed<Expression> e{
+      Expression{make_shared<ExpressionConstant>(M_E)}};
   return e.access();
 }
 
@@ -165,11 +170,6 @@ Expression& Expression::set_expanded() {
   return *this;
 }
 
-Polynomiald Expression::ToPolynomial() const {
-  DRAKE_ASSERT(ptr_ != nullptr);
-  return ptr_->ToPolynomial();
-}
-
 double Expression::Evaluate(const Environment& env,
                             RandomGenerator* const random_generator) const {
   DRAKE_ASSERT(ptr_ != nullptr);
@@ -185,6 +185,12 @@ double Expression::Evaluate(const Environment& env,
 double Expression::Evaluate(RandomGenerator* const random_generator) const {
   DRAKE_ASSERT(ptr_ != nullptr);
   return Evaluate(Environment{}, random_generator);
+}
+
+Eigen::SparseMatrix<double> Evaluate(
+    const Eigen::Ref<const Eigen::SparseMatrix<Expression>>& m,
+    const Environment& env) {
+  return m.unaryExpr([&env](const Expression& e) { return e.Evaluate(env); });
 }
 
 Expression Expression::EvaluatePartial(const Environment& env) const {
@@ -909,6 +915,69 @@ MatrixX<Expression> Jacobian(const Eigen::Ref<const VectorX<Expression>>& f,
 }
 
 namespace {
+
+// Helper class for IsAffine functions below where an instance of this class
+// is passed to Eigen::MatrixBase::visit() function.
+class IsAffineVisitor {
+ public:
+  IsAffineVisitor() = default;
+  explicit IsAffineVisitor(const Variables& variables)
+      : variables_{&variables} {}
+
+  // Called for the first coefficient. Needed for Eigen::MatrixBase::visit()
+  // function.
+  void init(const Expression& e, const Eigen::Index i, const Eigen::Index j) {
+    (*this)(e, i, j);
+  }
+
+  // Called for all other coefficients. Needed for Eigen::MatrixBase::visit()
+  // function.
+  void operator()(const Expression& e, const Eigen::Index, const Eigen::Index) {
+    // Note that `IsNotAffine` is only called when we have not found a
+    // non-affine element yet.
+    found_non_affine_element_ = found_non_affine_element_ || IsNotAffine(e);
+  }
+
+  bool result() const { return !found_non_affine_element_; }
+
+ private:
+  // Returns true if `e` is *not* affine in variables_ (if exists) or all
+  // variables in `e`.
+  bool IsNotAffine(const Expression& e) const {
+    if (!e.is_polynomial()) {
+      return true;
+    }
+    const Polynomial p{(variables_ != nullptr) ? Polynomial{e, *variables_}
+                                               : Polynomial{e}};
+    return p.TotalDegree() > 1;
+  }
+
+  bool found_non_affine_element_{false};
+  const Variables* const variables_{nullptr};
+};
+
+}  // namespace
+
+bool IsAffine(const Eigen::Ref<const MatrixX<Expression>>& m,
+              const Variables& vars) {
+  if (m.size() == 0) {
+    return true;
+  }
+  IsAffineVisitor visitor{vars};
+  m.visit(visitor);
+  return visitor.result();
+}
+
+bool IsAffine(const Eigen::Ref<const MatrixX<Expression>>& m) {
+  if (m.size() == 0) {
+    return true;
+  }
+  IsAffineVisitor visitor;
+  m.visit(visitor);
+  return visitor.result();
+}
+
+namespace {
 // Helper functions for TaylorExpand.
 //
 // We use the multi-index notation. Please read
@@ -1037,44 +1106,26 @@ Expression TaylorExpand(const Expression& f, const Environment& a,
   return factory.GetExpression();
 }
 
-Expression TaylorExpand(const Expression& f, const Environment& a,
-                        const int order, bool in_error_coordinates=false) {
-  // The implementation uses the formulation:
-  //      Taylor(f, a, order) = ∑_{|α| ≤ order} ∂fᵅ(a) / α! * (x - a)ᵅ.
-  DRAKE_DEMAND(order >= 1);
-  ExpressionAddFactory factory;
-  factory.AddExpression(f.EvaluatePartial(a));
-  const int num_vars = a.size();
-  if (num_vars == 0) {
-    return f;
+namespace {
+// Visitor used in the implementation of the GetDistinctVariables function
+// defined below.
+struct GetDistinctVariablesVisitor {
+  // called for the first coefficient
+  void init(const Expression& value, Eigen::Index, Eigen::Index) {
+    variables += value.GetVariables();
   }
-  vector<Expression> terms;  // (x - a)
-  for (const pair<const Variable, double>& p : a) {
-    const Variable& var = p.first;
-    if(in_error_coordinates){
-      const double v = p.second;
-      terms.push_back(var - v);
-    }else
-      {
-        terms.push_back(var);
-      }
-      
+  // called for all other coefficients
+  void operator()(const Expression& value, Eigen::Index, Eigen::Index) {
+    variables += value.GetVariables();
   }
-  for (int i = 1; i <= order; ++i) {
-    DoTaylorExpand(f, a, terms, i, num_vars, &factory);
-  }
-  return factory.GetExpression();
-}
+  Variables variables;
+};
+}  // namespace
 
 Variables GetDistinctVariables(const Eigen::Ref<const MatrixX<Expression>>& v) {
-  Variables vars{};
-  // Note: Default storage order for Eigen is column-major.
-  for (int j = 0; j < v.cols(); j++) {
-    for (int i = 0; i < v.rows(); i++) {
-      vars.insert(v(i, j).GetVariables());
-    }
-  }
-  return vars;
+  GetDistinctVariablesVisitor visitor;
+  v.visit(visitor);
+  return visitor.variables;
 }
 
 }  // namespace symbolic

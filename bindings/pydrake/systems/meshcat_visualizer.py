@@ -14,7 +14,7 @@ import numpy as np
 from drake import lcmt_viewer_load_robot
 from pydrake.common.eigen_geometry import Quaternion, Isometry3
 from pydrake.geometry import DispatchLoadMessage, SceneGraph
-from pydrake.lcm import DrakeMockLcm, Subscriber
+from pydrake.lcm import DrakeLcm, Subscriber
 from pydrake.math import RigidTransform, RotationMatrix
 from pydrake.systems.framework import (
     AbstractValue, LeafSystem, PublishEvent, TriggerType
@@ -243,6 +243,8 @@ class MeshcatVisualizer(LeafSystem):
         self.draw_period = draw_period
 
         # Pose bundle (from SceneGraph) input port.
+        # TODO(tehbelinda): Rename the `lcm_visualization` port to match
+        # SceneGraph once its output port has been updated. See #12214.
         self.DeclareAbstractInputPort("lcm_visualization",
                                       AbstractValue.Make(PoseBundle(0)))
 
@@ -280,11 +282,15 @@ class MeshcatVisualizer(LeafSystem):
         self.axis_radius = axis_radius
 
     def _parse_name(self, name):
-        # Parse name, split on the first (required) occurrence of `::` to get
-        # the source name, and let the rest be the frame name.
-        # TODO(eric.cousineau): Remove name parsing once #9128 is resolved.
+        # Parse name, split on the first occurrence of `::` to get the source
+        # name, and let the rest be the frame name. If `::` is not in name,
+        # source name is "unnamed" and the frame name is `name`.
+        # TODO(eric.cousineau): Remove name parsing once this is reimplemented
+        # to use Shape introspection.
         delim = "::"
-        assert delim in name
+        if delim not in name:
+            default_source = "unnamed"
+            return default_source, name
         pos = name.index(delim)
         source_name = name[:pos]
         frame_name = name[pos + len(delim):]
@@ -300,16 +306,16 @@ class MeshcatVisualizer(LeafSystem):
         """
         self.vis[self.prefix].delete()
 
-        # Intercept load message via mock LCM.
-        mock_lcm = DrakeMockLcm()
-        mock_lcm_subscriber = Subscriber(
-            lcm=mock_lcm,
+        # Intercept load message via memq LCM.
+        memq_lcm = DrakeLcm("memq://")
+        memq_lcm_subscriber = Subscriber(
+            lcm=memq_lcm,
             channel="DRAKE_VIEWER_LOAD_ROBOT",
             lcm_type=lcmt_viewer_load_robot)
-        DispatchLoadMessage(self._scene_graph, mock_lcm)
-        mock_lcm.HandleSubscriptions(0)
-        assert mock_lcm_subscriber.count > 0
-        load_robot_msg = mock_lcm_subscriber.message
+        DispatchLoadMessage(self._scene_graph, memq_lcm)
+        memq_lcm.HandleSubscriptions(0)
+        assert memq_lcm_subscriber.count > 0
+        load_robot_msg = memq_lcm_subscriber.message
 
         # Translate elements to `meshcat`.
         for i in range(load_robot_msg.num_links):
@@ -579,7 +585,7 @@ class MeshcatPointCloudVisualizer(LeafSystem):
     MeshcatPointCloudVisualizer is a System block that visualizes a
     PointCloud in meshcat. The PointCloud:
 
-    * Must have XYZ values. Assumed to be in point cloud frmae, ``P``.
+    * Must have XYZ values. Assumed to be in point cloud frame, ``P``.
     * RGB values are optional; if provided, they must be on the range [0..255].
 
     An example using a pydrake MeshcatVisualizer::

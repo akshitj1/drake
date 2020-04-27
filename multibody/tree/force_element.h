@@ -7,8 +7,8 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/multibody/math/spatial_force.h"
+#include "drake/multibody/tree/multibody_element.h"
 #include "drake/multibody/tree/multibody_forces.h"
-#include "drake/multibody/tree/multibody_tree_element.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/multibody/tree/position_kinematics_cache.h"
@@ -33,21 +33,21 @@ namespace multibody {
 /// - CalcNonConservativePower(): computes the power dissipated by
 ///   non-conservative forces.
 ///
-/// @tparam T The scalar type. Must be a valid Eigen scalar.
+/// @tparam_default_scalar
 template <typename T>
 class ForceElement : public
-                     MultibodyTreeElement<ForceElement<T>, ForceElementIndex> {
+                     MultibodyElement<ForceElement, T, ForceElementIndex> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ForceElement)
 
   /// Default constructor for a generic force element.
   explicit ForceElement(ModelInstanceIndex model_instance)
-      : MultibodyTreeElement<ForceElement<T>, ForceElementIndex>(
+      : MultibodyElement<ForceElement, T, ForceElementIndex>(
             model_instance) {}
 
   /// (Advanced) Computes the force contribution for `this` force element and
   /// **adds** it to the output arrays of forces. Depending on their model,
-  /// different force elements may write into the array of sptial forces
+  /// different force elements may write into the array of spatial forces
   /// `F_B_W` or the array of generalized forces `tau`.
   ///
   /// @param[in] context
@@ -198,7 +198,7 @@ class ForceElement : public
   /// an elastic spring between two bodies:
   /// @code
   ///   template <typename T>
-  ///   class SpringElement {
+  ///   class SpringElement : public ForceElement<T> {
   ///    public:
   ///     // Class's constructor.
   ///     SpringElement(
@@ -245,7 +245,7 @@ class ForceElement : public
   /// @}
 
  private:
-  // Implementation for MultibodyTreeElement::DoSetTopology().
+  // Implementation for MultibodyElement::DoSetTopology().
   // At MultibodyTree::Finalize() time, each force element retrieves its
   // topology from the parent MultibodyTree.
   void DoSetTopology(const internal::MultibodyTreeTopology&) final {}

@@ -43,6 +43,13 @@ class GeometryStateCollisionFilterAttorney;
    - distance
    - ray-intersection
 
+ Not all shape queries are fully supported. To add support for a shape:
+ 1. for fcl versions of the specification, modify CopyShapeOrThrow().
+ 2. add an instance of the new shape to the CopySemantics test in
+    proximity_engine_test.cc.
+ 3. for penetration, test the new shape in the class BoxPenetrationTest of
+    proximity_engine_test.cc and document its configuration.
+
  <!-- TODO(SeanCurtis-TRI): Fully document the semantics of the proximity
  properties that will affect the proximity engine -- hydroelastic semantics,
  required properties, etc.
@@ -50,15 +57,7 @@ class GeometryStateCollisionFilterAttorney;
  <h3>Geometry proximity properties</h3>
  -->
 
- @tparam T The scalar type. Must be a valid Eigen scalar.
-
- Instantiated templates for the following kinds of T's are provided:
-
- - double
- - AutoDiffXd
-
- They are already available to link against in the containing library.
- No other values for T are currently supported.
+ @tparam_nonsymbolic_scalar
 
  @internal Historically, this replaces the DrakeCollision::Model class.  */
 template <typename T>
@@ -107,6 +106,24 @@ class ProximityEngine {
                            const math::RigidTransformd& X_WG, GeometryId id,
                            const ProximityProperties& props = {});
 
+  /** Possibly updates the proximity representation of the given `geometry`
+   based on the relationship between its _current_ proximity properties and the
+   given _new_ proximity properties. The underlying representation may not
+   change if the change in proximity properties isn't of significance to the
+   %ProximityEngine.
+
+   @param geometry          The geometry to update.
+   @param new_properties    The properties to associate with the given geometry.
+   @throws std::logic_error   if `geometry` doesn't map to a known geometry in
+                              the engine or if the new properties trigger work
+                              that can't meaningfully be completed because of
+                              incomplete or inconsistent property definitions.
+   @pre `geometry` still has a copy of the original proximity properties that
+         are to be replaced.  */
+  void UpdateRepresentationForNewProperties(
+      const InternalGeometry& geometry,
+      const ProximityProperties& new_properties);
+
   // TODO(SeanCurtis-TRI): Decide if knowing whether something is dynamic or not
   //  is *actually* sufficiently helpful to justify this act.
   /** Removes the given geometry indicated by `id` from the engine.
@@ -151,7 +168,7 @@ class ProximityEngine {
       const std::unordered_map<GeometryId, math::RigidTransform<T>>& X_WGs);
 
   // ----------------------------------------------------------------------
-  /**@name              Signed Distance Queries
+  /** @name              Signed Distance Queries
   See @ref signed_distance_query "Signed Distance Query" for more details.  */
 
   //@{
@@ -164,6 +181,15 @@ class ProximityEngine {
   ComputeSignedDistancePairwiseClosestPoints(
       const std::unordered_map<GeometryId, math::RigidTransform<T>>& X_WGs,
       const double max_distance) const;
+
+  /** Implementation of
+   GeometryState::ComputeSignedDistancePairClosestPoints().
+   This includes `X_WGs`, the current poses of all geometries in World in the
+   current scalar type, keyed on each geometry's GeometryId.  */
+  SignedDistancePair<T> ComputeSignedDistancePairClosestPoints(
+      GeometryId id_A, GeometryId id_B,
+      const std::unordered_map<GeometryId, math::RigidTransform<T>>& X_WGs)
+      const;
 
   /** Implementation of GeometryState::ComputeSignedDistanceToPoint().
    This includes `X_WGs`, the current poses of all geometries in World in the
@@ -198,6 +224,14 @@ class ProximityEngine {
   std::vector<ContactSurface<T>> ComputeContactSurfaces(
       const std::unordered_map<GeometryId, math::RigidTransform<T>>& X_WGs)
       const;
+
+  /** Implementation of GeometryState::ComputeContactSurfacesWithFallback().
+   This includes `X_WGs`, the current poses of all geometries in World in the
+   current scalar type, keyed on each geometry's GeometryId.  */
+  void ComputeContactSurfacesWithFallback(
+      const std::unordered_map<GeometryId, math::RigidTransform<T>>& X_WGs,
+      std::vector<ContactSurface<T>>* surfaces,
+      std::vector<PenetrationAsPointPair<double>>* point_pairs) const;
 
   /** Implementation of GeometryState::FindCollisionCandidates().  */
   std::vector<SortedPair<GeometryId>> FindCollisionCandidates() const;

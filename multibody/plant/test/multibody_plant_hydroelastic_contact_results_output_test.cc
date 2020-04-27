@@ -18,19 +18,8 @@ using geometry::SurfaceVertexIndex;
 using geometry::SurfaceMesh;
 
 namespace multibody {
-
-class MultibodyPlantTester {
- public:
-  MultibodyPlantTester() = delete;
-
-  static std::vector<geometry::ContactSurface<double>> ComputeContactSurfaces(
-      const MultibodyPlant<double>& plant,
-      const geometry::QueryObject<double>& query_object) {
-    return plant.hydroelastics_engine_.ComputeContactSurfaces(query_object);
-  }
-};
-
 namespace {
+
 class HydroelasticContactResultsOutputTester : public ::testing::Test {
  protected:
   void SetUp() {
@@ -56,10 +45,12 @@ class HydroelasticContactResultsOutputTester : public ::testing::Test {
     geometry::SceneGraph<double>& scene_graph =
         *builder.AddSystem<geometry::SceneGraph<double>>();
     scene_graph.set_name("scene_graph");
+    // TODO(SeanCurtis-TRI): This should _not_ be using code from the examples/
+    //  directory. Examples code shouldn't feed back into other code.
     plant_ = builder.AddSystem(
         examples::multibody::bouncing_ball::MakeBouncingBallPlant(
             radius, mass, elastic_modulus, dissipation, friction, gravity_W,
-            &scene_graph));
+            false /* rigid_sphere */, false /* soft_ground */, &scene_graph));
     plant_->set_contact_model(ContactModel::kHydroelasticsOnly);
     plant_->Finalize();
 
@@ -111,7 +102,7 @@ class HydroelasticContactResultsOutputTester : public ::testing::Test {
 };
 
 // Checks that the ContactSurface from the output port is equivalent to that
-// returned from the HydroelasticEngine.
+// computed by SceneGraph.
 TEST_F(HydroelasticContactResultsOutputTester, ContactSurfaceEquivalent) {
   // Get the query object so that we can compute the contact surfaces.
   const auto& query_object =
@@ -120,7 +111,7 @@ TEST_F(HydroelasticContactResultsOutputTester, ContactSurfaceEquivalent) {
 
   // Compute the contact surface using the hydroelastic engine.
   std::vector<geometry::ContactSurface<double>> contact_surfaces =
-      MultibodyPlantTester::ComputeContactSurfaces(*plant_, query_object);
+      query_object.ComputeContactSurfaces();
 
   // Check that the two contact surfaces are equivalent.
   ASSERT_EQ(contact_surfaces.size(), 1);
@@ -138,6 +129,20 @@ TEST_F(HydroelasticContactResultsOutputTester, SpatialForceAtCentroid) {
   // quadrature points per triangle.
   ASSERT_EQ(results.contact_surface().mesh_W().num_faces() * 3,
             results.quadrature_point_data().size());
+
+  // Sanity check that geometry ID is consistent with direction of spatial
+  // force. This check is based upon the convention that the force points into
+  // Body A. If Body A is the ball, we expect the z-dimension of the
+  // translational component of the spatial force to be positive; otherwise
+  // we expect it to be negative.
+  const std::vector<geometry::GeometryId> ball_collision_geometries =
+      plant_->GetCollisionGeometriesForBody(
+          plant_->GetBodyByName("Ball"));
+  const bool body_A_is_ball = (std::find(
+      ball_collision_geometries.begin(), ball_collision_geometries.end(),
+      results.contact_surface().id_M()) != ball_collision_geometries.end());
+  const double sign_scalar = (body_A_is_ball) ? 1.0 : -1.0;
+  ASSERT_GT(sign_scalar * F_Ac_W.translational()[2], 0);
 
   // Our crude quadrature process, which uses the mean traction over the
   // surface of the triangle, gives us the same accuracy as Gaussian quadrature
@@ -172,7 +177,7 @@ TEST_F(HydroelasticContactResultsOutputTester, SlipVelocity) {
   // If Body A is the ball, then every point in the slip velocity field should
   // be +x. Otherwise, it should be -x.
   const Vector3d x(1, 0, 0);
-  std::vector<geometry::GeometryId> ball_collision_geometries =
+  const std::vector<geometry::GeometryId> ball_collision_geometries =
       plant_->GetCollisionGeometriesForBody(
           plant_->GetBodyByName("Ball"));
   const bool body_A_is_ball = (std::find(
@@ -192,10 +197,12 @@ TEST_F(HydroelasticContactResultsOutputTester, Traction) {
   const std::vector<HydroelasticQuadraturePointData<double>>&
       quadrature_point_data = results.quadrature_point_data();
 
-  // If Body A is the ball, then the traction field should point along +z.
-  // Otherwise, it should point along -z.
+  // If Body A (with geometry M) is the ball, then the traction field should
+  // point along +z (i.e., the contact surfaces normals point out of N and
+  // into M and the tractions should point in the same direction). Otherwise, it
+  // should point along -z.
   const Vector3d z(0, 0, 1);
-  std::vector<geometry::GeometryId> ball_collision_geometries =
+  const std::vector<geometry::GeometryId> ball_collision_geometries =
       plant_->GetCollisionGeometriesForBody(plant_->GetBodyByName("Ball"));
   const bool body_A_is_ball = (std::find(
       ball_collision_geometries.begin(), ball_collision_geometries.end(),
@@ -214,8 +221,8 @@ TEST_F(HydroelasticContactResultsOutputTester, Traction) {
 
     // The conversion from Cartesian to barycentric coordinates introduces some
     // roundoff error. Test the values using a relative tolerance since the
-    // pressure is generlly much greater than unity.
-    const double tol = pressure * 20 * std::numeric_limits<double>::epsilon();
+    // pressure is generally much greater than unity.
+    const double tol = pressure * 30 * std::numeric_limits<double>::epsilon();
     const Vector3d expected_traction = expected_traction_direction * pressure;
     EXPECT_NEAR(
         (quadrature_point_datum.traction_Aq_W - expected_traction).norm(), 0,

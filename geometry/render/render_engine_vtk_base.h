@@ -2,20 +2,32 @@
 
 #include <vtkCylinderSource.h>
 #include <vtkSmartPointer.h>
-#include <vtkSphereSource.h>
+#include <vtkTexturedSphereSource.h>
 #include <vtkTransform.h>
 #include <vtkTransformPolyDataFilter.h>
+
+#include "drake/geometry/geometry_roles.h"
+#include "drake/geometry/shape_specification.h"
 
 namespace drake {
 namespace geometry {
 namespace render {
 
 // Creates a z-axis aligned VTK capsule.
-void CreateVtkCapsule(vtkTransformPolyDataFilter* transform_filter,
-                      double radius, double length);
+vtkSmartPointer<vtkPolyDataAlgorithm> CreateVtkCapsule(const Capsule& capsule);
+
+// Creates a box with texture coordinates such that the image is stretched
+// over each face. The texture can be optionally scaled/tiled via texture
+// scale properties in the given properties.
+vtkSmartPointer<vtkPolyDataAlgorithm> CreateVtkBox(
+    const Box& box, const PerceptionProperties& properties);
+
+// Creates a VTK ellipsoid scaled from a sphere.
+vtkSmartPointer<vtkPolyDataAlgorithm> CreateVtkEllipsoid(
+    const Ellipsoid& ellipsoid);
 
 // Sets common sphere options such as its dimensions and resolution.
-void SetSphereOptions(vtkSphereSource* vtk_sphere, double radius);
+void SetSphereOptions(vtkTexturedSphereSource* vtk_sphere, double radius);
 
 // Sets common cylinder options such as its dimensions and resolution.
 void SetCylinderOptions(vtkCylinderSource* vtk_cylinder, double height,

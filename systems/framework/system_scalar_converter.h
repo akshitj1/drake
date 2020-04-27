@@ -53,11 +53,7 @@ class SystemScalarConverter {
   /// @endcode
   ///
   /// This constructor only creates a converter between a limited set of types,
-  /// specifically:
-  ///
-  /// - double
-  /// - drake::AutoDiffXd
-  /// - drake::symbolic::Expression
+  /// specifically the @ref default_scalars "default scalars".
   ///
   /// By default, all non-identity pairs (pairs where T and U differ) drawn
   /// from the above list can be used for T and U.  Systems may specialize
@@ -222,6 +218,8 @@ std::unique_ptr<System<T>> SystemScalarConverter::Convert(
 
 namespace system_scalar_converter_internal {
 // When Traits says that conversion is supported.
+// N.B. This logic should be reflected in `TemplateSystem._make` in the file
+// `scalar_conversion.py`.
 template <template <typename> class S, typename T, typename U>
 static std::unique_ptr<System<T>> Make(
     bool subtype_preservation, const System<U>& other, std::true_type) {

@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/systems/analysis/integrator_base.h"
 
@@ -14,6 +15,9 @@ namespace systems {
  * <pre>
  * x(t+h) = x(t) + dx/dt * h
  * </pre>
+ *
+ * @tparam_default_scalar
+ * @ingroup integrators
  */
 template <class T>
 class ExplicitEulerIntegrator final : public IntegratorBase<T> {
@@ -48,15 +52,15 @@ class ExplicitEulerIntegrator final : public IntegratorBase<T> {
   int get_error_estimate_order() const override { return 0; }
 
  private:
-  bool DoStep(const T& dt) override;
+  bool DoStep(const T& h) override;
 };
 
 /**
- * Integrates the system forward in time by dt, starting at the current time t₀.
- * This value of dt is determined by IntegratorBase::Step().
+ * Integrates the system forward in time by h, starting at the current time t₀.
+ * This value of h is determined by IntegratorBase::Step().
  */
 template <class T>
-bool ExplicitEulerIntegrator<T>::DoStep(const T& dt) {
+bool ExplicitEulerIntegrator<T>::DoStep(const T& h) {
   Context<T>& context = *this->get_mutable_context();
 
   // CAUTION: This is performance-sensitive inner loop code that uses dangerous
@@ -75,12 +79,12 @@ bool ExplicitEulerIntegrator<T>::DoStep(const T& dt) {
   // Update continuous state and time. This call marks t- and xc-dependent
   // cache entries out of date, including xcdot0.
   VectorBase<T>& xc = context.SetTimeAndGetMutableContinuousStateVector(
-      context.get_time() + dt);  // t ← t₀ + h
+      context.get_time() + h);  // t ← t₀ + h
 
   // Cache: xcdot0 still references the derivative cache value, which is
   // unchanged, although it is marked out of date.
 
-  xc.PlusEqScaled(dt, xcdot0);   // xc(t₀ + h) ← xc(t₀) + dt * xcdot₀
+  xc.PlusEqScaled(h, xcdot0);   // xc(t₀ + h) ← xc(t₀) + h * xcdot₀
 
   // This integrator always succeeds at taking the step.
   return true;
@@ -89,3 +93,5 @@ bool ExplicitEulerIntegrator<T>::DoStep(const T& dt) {
 }  // namespace systems
 }  // namespace drake
 
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class drake::systems::ExplicitEulerIntegrator)

@@ -48,16 +48,41 @@ Core Library
         </tr>
         <tr>
             <td style="text-align:center">
-                <a target="_doc" href="https://drake.mit.edu/doxygen_cxx/group__systems.html">doc</a> | <a target="_tutorial" href="https://nbviewer.jupyter.org/github/RobotLocomotion/drake/blob/master/tutorials/dynamical_systems.ipynb">tutorial</a>
+                <a target="_doc" href="https://drake.mit.edu/doxygen_cxx/group__systems.html">doc</a> | <a target="_tutorial" href="https://mybinder.org/v2/gh/RobotLocomotion/drake/nightly-release?filepath=tutorials/dynamical_systems.ipynb">tutorial</a>
             </td>
             <td style="text-align:center">
-                <a target="_doc" href="https://drake.mit.edu/doxygen_cxx/group__solvers.html">doc</a> | <a target="_tutorial" href="https://nbviewer.jupyter.org/github/RobotLocomotion/drake/blob/master/tutorials/mathematical_program.ipynb">tutorial</a>
+                <a target="_doc" href="https://drake.mit.edu/doxygen_cxx/group__solvers.html">doc</a> | <a target="_tutorial" href="https://mybinder.org/v2/gh/RobotLocomotion/drake/nightly-release?filepath=tutorials/mathematical_program.ipynb">tutorial</a>
             </td>
             <td style="text-align:center">
                 <a target="_doc" href="https://drake.mit.edu/doxygen_cxx/group__multibody.html">doc</a>
             </td>
         </tr>
     </table>
+
+.. N.B. Leave URL for backwards-compatibility.
+
+.. _tutorials-and-examples:
+
+.. _tutorials:
+
+*********
+Tutorials
+*********
+
+We have Python tutorials that can be previewed and executed as Jupyter
+notebooks online, with no need for local installation:
+
+.. raw:: html
+
+    <a target="_doc" href="https://mybinder.org/v2/gh/RobotLocomotion/drake/nightly-release?filepath=tutorials">
+      <img src="https://mybinder.org/badge_logo.svg"/>
+    </a>
+
+You may find more information about how to run these locally with Jupyter and
+how they are published to Binder
+`in the tutorials directory of the source tree <https://github.com/RobotLocomotion/drake/tree/master/tutorials>`_.
+
+.. _examples:
 
 ********
 Examples
@@ -102,12 +127,18 @@ The Drake developers would like to acknowledge significant support from the `Toy
 Next steps
 **********
 
+.. N.B. The #:// is meant to force Sphinx to use a relative HTML URL.
+   Unfortunately, it is hard to tell it to link to a section (not a page):
+   https://github.com/sphinx-doc/sphinx/issues/701
+.. TODO(eric): Replace "Tutorials" with binder badge and direct link, or
+   replace with actual relative link.
+
 .. toctree::
    :maxdepth: 1
 
    gallery
    installation
-   Tutorials <https://nbviewer.jupyter.org/github/RobotLocomotion/drake/tree/master/tutorials/>
+   Tutorials <https://drake.mit.edu/#tutorials-and-examples>
    API Documentation (C++) <doxygen_cxx/index.html#://>
    API Documentation (Python) <pydrake/index.html#://>
    getting_help

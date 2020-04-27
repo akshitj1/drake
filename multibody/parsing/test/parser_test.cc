@@ -20,7 +20,7 @@ GTEST_TEST(FileParserTest, BasicTest) {
   // Load from SDF using plural method.
   // Add a second one with an overridden model_name.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     Parser dut(&plant);
     EXPECT_EQ(dut.AddAllModelsFromFile(sdf_name).size(), 1);
     dut.AddModelFromFile(sdf_name, "foo");
@@ -29,7 +29,7 @@ GTEST_TEST(FileParserTest, BasicTest) {
   // Load from URDF using plural method.
   // Add a second one with an overridden model_name.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     Parser dut(&plant);
     EXPECT_EQ(dut.AddAllModelsFromFile(urdf_name).size(), 1);
     dut.AddModelFromFile(urdf_name, "foo");
@@ -37,7 +37,7 @@ GTEST_TEST(FileParserTest, BasicTest) {
 
   // Load an SDF then a URDF.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     Parser dut(&plant);
     dut.AddModelFromFile(sdf_name, "foo");
     dut.AddModelFromFile(urdf_name, "bar");
@@ -50,7 +50,7 @@ GTEST_TEST(FileParserTest, MultiModelTest) {
 
   // Check that the plural method loads two models.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     EXPECT_EQ(Parser(&plant).AddAllModelsFromFile(sdf_name).size(), 2);
   }
 
@@ -60,7 +60,7 @@ GTEST_TEST(FileParserTest, MultiModelTest) {
 
   // Check the singular method without model_name.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     DRAKE_EXPECT_THROWS_MESSAGE(
         Parser(&plant).AddModelFromFile(sdf_name),
         std::exception, expected_error);
@@ -68,7 +68,7 @@ GTEST_TEST(FileParserTest, MultiModelTest) {
 
   // Check the singular method with empty model_name.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     DRAKE_EXPECT_THROWS_MESSAGE(
         Parser(&plant).AddModelFromFile(sdf_name, ""),
         std::exception, expected_error);
@@ -76,7 +76,7 @@ GTEST_TEST(FileParserTest, MultiModelTest) {
 
   // Check the singular method with non-empty model_name.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     DRAKE_EXPECT_THROWS_MESSAGE(
         Parser(&plant).AddModelFromFile(sdf_name, "foo"),
         std::exception, expected_error);
@@ -86,7 +86,7 @@ GTEST_TEST(FileParserTest, MultiModelTest) {
 GTEST_TEST(FileParserTest, ExtensionMatchTest) {
   // An unknown extension is an error.
   // (Check both singular and plural overloads.)
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   DRAKE_EXPECT_THROWS_MESSAGE(
       Parser(&plant).AddModelFromFile("acrobot.foo"),
       std::exception,
@@ -108,10 +108,45 @@ GTEST_TEST(FileParserTest, ExtensionMatchTest) {
       ".*does not exist.*");
 }
 
+// If a Drake URDF or SDF file uses package URIs, this confirms that the attempt
+// to add the model also loads its package.xml files by side effect.
+GTEST_TEST(FileParserTest, FindDrakePackageWhenAdding) {
+  using AddFunc = std::function<void(const std::string&, Parser*)>;
+  // Function wrappers to facilitate testing all
+  // {URDF, SDF} X {AddModel, AddAllModels} combinations.
+  AddFunc add_all_models = [](const std::string& file_name, Parser* parser) {
+    parser->AddAllModelsFromFile(file_name);
+  };
+  AddFunc add_model = [](const std::string& file_name, Parser* parser) {
+    parser->AddModelFromFile(file_name);
+  };
+
+  for (const auto& add_func : {add_all_models, add_model}) {
+    for (const auto file_name :
+         {"drake/multibody/parsing/test/box_package/sdfs/box.sdf",
+          "drake/multibody/parsing/test/box_package/urdfs/box.urdf"}) {
+      MultibodyPlant<double> plant(0.0);
+      geometry::SceneGraph<double> scene_graph;
+      Parser parser(&plant, &scene_graph);
+      EXPECT_EQ(parser.package_map().size(), 0);
+
+      // Because the box.sdf references an obj via a package: URI, this would
+      // throw if the package were not found.
+      EXPECT_NO_THROW(add_func(FindResourceOrThrow(file_name), &parser));
+
+      // Now we explicitly confirm the package map has been modified.
+      EXPECT_EQ(parser.package_map().size(), 1);
+      EXPECT_TRUE(parser.package_map().Contains("box_model"));
+    }
+  }
+}
+
+// If a non-Drake URDF or SDF file uses package URIs, this confirms that it is
+// necessary to explicitly include the package in order to resolve the URIs.
 GTEST_TEST(FileParserTest, PackageMapTest) {
   // We start with the world and default model instances (model_instance.h
   // explains why there are two).
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   geometry::SceneGraph<double> scene_graph;
   Parser parser(&plant, &scene_graph);
   ASSERT_EQ(plant.num_model_instances(), 2);

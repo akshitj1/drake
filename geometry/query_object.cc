@@ -111,6 +111,20 @@ QueryObject<T>::ComputeContactSurfaces() const {
 }
 
 template <typename T>
+void QueryObject<T>::ComputeContactSurfacesWithFallback(
+    std::vector<ContactSurface<T>>* surfaces,
+    std::vector<PenetrationAsPointPair<double>>* point_pairs) const {
+  DRAKE_DEMAND(surfaces);
+  DRAKE_DEMAND(point_pairs);
+
+  ThrowIfNotCallable();
+
+  FullPoseUpdate();
+  const GeometryState<T>& state = geometry_state();
+  state.ComputeContactSurfacesWithFallback(surfaces, point_pairs);
+}
+
+template <typename T>
 std::vector<SignedDistancePair<T>>
 QueryObject<T>::ComputeSignedDistancePairwiseClosestPoints(
     const double max_distance) const {
@@ -119,6 +133,16 @@ QueryObject<T>::ComputeSignedDistancePairwiseClosestPoints(
   FullPoseUpdate();
   const GeometryState<T>& state = geometry_state();
   return state.ComputeSignedDistancePairwiseClosestPoints(max_distance);
+}
+
+template <typename T>
+SignedDistancePair<T> QueryObject<T>::ComputeSignedDistancePairClosestPoints(
+    GeometryId id_A, GeometryId id_B) const {
+  ThrowIfNotCallable();
+
+  FullPoseUpdate();
+  const GeometryState<T>& state = geometry_state();
+  return state.ComputeSignedDistancePairClosestPoints(id_A, id_B);
 }
 
 template <typename T>

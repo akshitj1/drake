@@ -5,9 +5,9 @@
 
 workspace(name = "drake")
 
-load("//tools/workspace:default.bzl", "add_default_repositories")
+load("//tools/workspace:default.bzl", "add_default_workspace")
 
-add_default_repositories()
+add_default_workspace()
 
 # These are test repositories only needed for local testing of `external_data`,
 # and should not be needed for downstream projects.
@@ -20,9 +20,9 @@ load("//tools/clion:repository.bzl", "drake_clion_environment")
 
 drake_clion_environment()
 
-load("@bazel_skylib//:lib.bzl", "versions")
+load("@bazel_skylib//lib:versions.bzl", "versions")
 
 # This needs to be in WORKSPACE or a repository rule for native.bazel_version
 # to actually be defined. The minimum_bazel_version value should match the
 # version passed to the find_package(Bazel) call in the root CMakeLists.txt.
-versions.check(minimum_bazel_version = "1.1")
+versions.check(minimum_bazel_version = "2.0")

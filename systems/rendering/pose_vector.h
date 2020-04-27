@@ -13,8 +13,7 @@ namespace rendering {
 /// translation, and `R` is represented as a quaternion. The exact order of
 /// elements is `{x, y, z, qw, qx, qy, qz}`.
 ///
-/// @tparam T The Eigen scalar type. Supported scalar types are double,
-///         AutoDiffXd, and symbolic::Expression.
+/// @tparam_default_scalar
 template <typename T>
 class PoseVector : public BasicVector<T> {
  public:
@@ -46,7 +45,7 @@ class PoseVector : public BasicVector<T> {
   static constexpr int kSize = 7;
 
  protected:
-  DRAKE_NODISCARD PoseVector<T>* DoClone() const override;
+  [[nodiscard]] PoseVector<T>* DoClone() const override;
 };
 
 }  // namespace rendering

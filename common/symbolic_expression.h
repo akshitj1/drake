@@ -20,22 +20,37 @@
 #include <vector>
 
 #include <Eigen/Core>
+#include <Eigen/Sparse>
 
 #include "drake/common/cond.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/drake_throw.h"
 #include "drake/common/dummy_value.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/extract_double.h"
 #include "drake/common/hash.h"
-#include "drake/common/polynomial.h"
 #include "drake/common/random.h"
 #include "drake/common/symbolic.h"
 
 namespace drake {
 
 namespace symbolic {
+
+#ifndef DRAKE_DOXYGEN_CXX
+class Expression;
+namespace internal {
+// Helper to implement (deprecated) Expression::ToPolynomial.
+// TODO(soonho-tri): Remove this on or after 2020-07-01 when we remove
+// Expression::ToPolynomial.
+struct ToPolynomialHelperTag {};
+template <typename Dummy>
+auto ToPolynomialHelper(const Expression& e, const Dummy&) {
+  return ToPolynomial(e, Dummy{});
+}
+}  // namespace internal
+#endif
 
 /** Kinds of symbolic expressions. */
 enum class ExpressionKind {
@@ -233,7 +248,12 @@ class Expression {
    *  Note that the ID of a variable is preserved in this translation.
    *  \pre{is_polynomial() is true.}
    */
-  Polynomiald ToPolynomial() const;
+  template <typename Dummy = internal::ToPolynomialHelperTag>
+  DRAKE_DEPRECATED("2020-07-01",
+                   "Use drake::ToPolynomial(const Expression&) instead.")
+  auto ToPolynomial() const {
+    return internal::ToPolynomialHelper<Dummy>(*this, Dummy{});
+  }
 
   /** Evaluates using a given environment (by default, an empty environment) and
    * a random number generator. If there is a random variable in this expression
@@ -545,7 +565,11 @@ class Expression {
   friend class ExpressionPow;
 
  private:
+  // This is a helper function used to handle `Expression(double)` constructor.
+  static std::shared_ptr<ExpressionCell> make_cell(double d);
+
   explicit Expression(std::shared_ptr<ExpressionCell> ptr);
+
   void HashAppend(DelegatingHasher* hasher) const;
 
   // Note: We use "non-const" ExpressionCell type. This allows us to perform
@@ -743,195 +767,22 @@ const Expression& get_then_expression(const Expression& e);
  */
 const Expression& get_else_expression(const Expression& e);
 
-// Matrix<Expression> * Matrix<double> => Matrix<Expression>
-template <typename MatrixL, typename MatrixR>
-typename std::enable_if<
-    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
-        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
-        std::is_same<typename MatrixL::Scalar, Expression>::value &&
-        std::is_same<typename MatrixR::Scalar, double>::value,
-    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
-                  MatrixR::ColsAtCompileTime>>::type
-operator*(const MatrixL& lhs, const MatrixR& rhs) {
-  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
-}
-
-// Matrix<double> * Matrix<Expression> => Matrix<Expression>
-template <typename MatrixL, typename MatrixR>
-typename std::enable_if<
-    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
-        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
-        std::is_same<typename MatrixL::Scalar, double>::value &&
-        std::is_same<typename MatrixR::Scalar, Expression>::value,
-    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
-                  MatrixR::ColsAtCompileTime>>::type
-operator*(const MatrixL& lhs, const MatrixR& rhs) {
-  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
-}
-
 Expression operator+(const Variable& var);
 Expression operator-(const Variable& var);
 
-// Matrix<Expression> * Matrix<Variable> => Matrix<Expression>
-template <typename MatrixL, typename MatrixR>
-typename std::enable_if<
-    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
-        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
-        std::is_same<typename MatrixL::Scalar, Expression>::value &&
-        std::is_same<typename MatrixR::Scalar, Variable>::value,
-    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
-                  MatrixR::ColsAtCompileTime>>::type
-operator*(const MatrixL& lhs, const MatrixR& rhs) {
-  return lhs * rhs.template cast<Expression>();
-}
-
-// Matrix<Variable> * Matrix<Expression> => Matrix<Expression>
-template <typename MatrixL, typename MatrixR>
-typename std::enable_if<
-    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
-        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
-        std::is_same<typename MatrixL::Scalar, Variable>::value &&
-        std::is_same<typename MatrixR::Scalar, Expression>::value,
-    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
-                  MatrixR::ColsAtCompileTime>>::type
-operator*(const MatrixL& lhs, const MatrixR& rhs) {
-  return lhs.template cast<Expression>() * rhs;
-}
-
-// Matrix<Variable> * Matrix<double> => Matrix<Expression>
-template <typename MatrixL, typename MatrixR>
-typename std::enable_if<
-    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
-        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
-        std::is_same<typename MatrixL::Scalar, Variable>::value &&
-        std::is_same<typename MatrixR::Scalar, double>::value,
-    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
-                  MatrixR::ColsAtCompileTime>>::type
-operator*(const MatrixL& lhs, const MatrixR& rhs) {
-  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
-}
-
-// Matrix<double> * Matrix<Variable> => Matrix<Expression>
-template <typename MatrixL, typename MatrixR>
-typename std::enable_if<
-    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
-        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
-        std::is_same<typename MatrixL::Scalar, double>::value &&
-        std::is_same<typename MatrixR::Scalar, Variable>::value,
-    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
-                  MatrixR::ColsAtCompileTime>>::type
-operator*(const MatrixL& lhs, const MatrixR& rhs) {
-  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
-}
-
-/// Transform<double> * Transform<Expression> => Transform<Expression>
-template <int Dim, int LhsMode, int RhsMode, int LhsOptions, int RhsOptions>
-auto operator*(const Eigen::Transform<Expression, Dim, LhsMode, LhsOptions>& t1,
-               const Eigen::Transform<double, Dim, RhsMode, RhsOptions>& t2) {
-  return t1 * t2.template cast<Expression>();
-}
-
-/// Transform<Expression> * Transform<double> => Transform<Expression>
-template <int Dim, int LhsMode, int RhsMode, int LhsOptions, int RhsOptions>
-auto operator*(
-    const Eigen::Transform<double, Dim, LhsMode, LhsOptions>& t1,
-    const Eigen::Transform<Expression, Dim, RhsMode, RhsOptions>& t2) {
-  return t1.template cast<Expression>() * t2;
-}
-
-/// Evaluates a symbolic matrix @p m using @p env and @p random_generator.
+/// Returns the Taylor series expansion of `f` around `a` of order `order`.
 ///
-/// If there is a random variable in @p m which is unassigned in @p env, this
-/// function uses @p random_generator to sample a value and use the value to
-/// substitute all occurrences of the random variable in @p m.
-///
-/// @returns a matrix of double whose size is the size of @p m.
-/// @throws std::runtime_error if NaN is detected during evaluation.
-/// @throws std::runtime_error if @p m includes unassigned random variables but
-///                               @p random_generator is `nullptr`.
-template <typename Derived>
-Eigen::Matrix<double, Derived::RowsAtCompileTime, Derived::ColsAtCompileTime, 0,
-              Derived::MaxRowsAtCompileTime, Derived::MaxColsAtCompileTime>
-Evaluate(const Eigen::MatrixBase<Derived>& m,
-         const Environment& env = Environment{},
-         RandomGenerator* random_generator = nullptr) {
-  static_assert(std::is_same<typename Derived::Scalar, Expression>::value,
-                "Evaluate only accepts a symbolic matrix.");
-  // Note that the return type is written out explicitly to help gcc 5 (on
-  // ubuntu).  Previously the implementation used `auto`, and placed  an `
-  // .eval()` at the end to prevent lazy evaluation.
-  if (random_generator == nullptr) {
-    return m.unaryExpr([&env](const Expression& e) { return e.Evaluate(env); });
-  } else {
-    // Construct an environment by extending `env` by sampling values for the
-    // random variables in `m` which are unassigned in `env`.
-    const Environment env_with_random_variables{PopulateRandomVariables(
-        env, GetDistinctVariables(m), random_generator)};
-    return m.unaryExpr([&env_with_random_variables](const Expression& e) {
-      return e.Evaluate(env_with_random_variables);
-    });
-  }
-}
-
-/// Substitutes a symbolic matrix @p m using a given substitution @p subst.
-///
-/// @returns a matrix of symbolic expressions whose size is the size of @p m.
-/// @throws std::runtime_error if NaN is detected during substitution.
-template <typename Derived>
-Eigen::Matrix<Expression, Derived::RowsAtCompileTime,
-              Derived::ColsAtCompileTime, 0, Derived::MaxRowsAtCompileTime,
-              Derived::MaxColsAtCompileTime>
-Substitute(const Eigen::MatrixBase<Derived>& m, const Substitution& subst) {
-  static_assert(std::is_same<typename Derived::Scalar, Expression>::value,
-                "Substitute only accepts a symbolic matrix.");
-  // Note that the return type is written out explicitly to help gcc 5 (on
-  // ubuntu).
-  return m.unaryExpr(
-      [&subst](const Expression& e) { return e.Substitute(subst); });
-}
-
-/// Substitutes @p var with @p e in a symbolic matrix @p m.
-///
-/// @returns a matrix of symbolic expressions whose size is the size of @p m.
-/// @throws std::runtime_error if NaN is detected during substitution.
-template <typename Derived>
-Eigen::Matrix<Expression, Derived::RowsAtCompileTime,
-              Derived::ColsAtCompileTime, 0, Derived::MaxRowsAtCompileTime,
-              Derived::MaxColsAtCompileTime>
-Substitute(const Eigen::MatrixBase<Derived>& m, const Variable& var,
-           const Expression& e) {
-  static_assert(std::is_same<typename Derived::Scalar, Expression>::value,
-                "Substitute only accepts a symbolic matrix.");
-  // Note that the return type is written out explicitly to help gcc 5 (on
-  // ubuntu).
-  return Substitute(m, Substitution{{var, e}});
-}
+/// @param[in] f     Symbolic expression to approximate using Taylor series
+///                  expansion.
+/// @param[in] a     Symbolic environment which specifies the point of
+///                  approximation. If a partial environment is provided,
+///                  the unspecified variables are treated as symbolic
+///                  variables (e.g. decision variable).
+/// @param[in] order Positive integer which specifies the maximum order of the
+///                  resulting polynomial approximating `f` around `a`.
+Expression TaylorExpand(const Expression& f, const Environment& a, int order);
 
 }  // namespace symbolic
-
-/** Provides specialization of @c cond function defined in drake/common/cond.h
- * file. This specialization is required to handle @c double to @c
- * symbolic::Expression conversion so that we can write one such as <tt>cond(x >
- * 0.0, 1.0, -1.0)</tt>.
- */
-template <typename... Rest>
-symbolic::Expression cond(const symbolic::Formula& f_cond, double v_then,
-                          Rest... rest) {
-  return if_then_else(f_cond, symbolic::Expression{v_then}, cond(rest...));
-}
-
-/// Specializes common/dummy_value.h.
-template <>
-struct dummy_value<symbolic::Expression> {
-  static symbolic::Expression get() { return symbolic::Expression::NaN(); }
-};
-
-/// Returns the symbolic expression's value() as a double.
-///
-/// @throws std::exception if it is not possible to evaluate the symbolic
-/// expression with an empty environment.
-double ExtractDoubleOrThrow(const symbolic::Expression& e);
-
 }  // namespace drake
 
 namespace std {
@@ -965,7 +816,7 @@ struct equal_to<drake::symbolic::Expression> {
 /* Provides std::numeric_limits<drake::symbolic::Expression>. */
 template <>
 struct numeric_limits<drake::symbolic::Expression>
-    : public numeric_limits<double> {};
+    : public std::numeric_limits<double> {};
 
 /// Provides std::uniform_real_distribution, U(a, b), for symbolic expressions.
 ///
@@ -1372,6 +1223,179 @@ struct ScalarBinaryOpTraits<double, drake::symbolic::Expression, BinaryOp> {
 namespace drake {
 namespace symbolic {
 
+// Matrix<Expression> * Matrix<double> => Matrix<Expression>
+template <typename MatrixL, typename MatrixR>
+typename std::enable_if<
+    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
+        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
+        std::is_same<typename MatrixL::Scalar, Expression>::value &&
+        std::is_same<typename MatrixR::Scalar, double>::value,
+    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
+                  MatrixR::ColsAtCompileTime>>::type
+operator*(const MatrixL& lhs, const MatrixR& rhs) {
+  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
+}
+
+// Matrix<double> * Matrix<Expression> => Matrix<Expression>
+template <typename MatrixL, typename MatrixR>
+typename std::enable_if<
+    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
+        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
+        std::is_same<typename MatrixL::Scalar, double>::value &&
+        std::is_same<typename MatrixR::Scalar, Expression>::value,
+    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
+                  MatrixR::ColsAtCompileTime>>::type
+operator*(const MatrixL& lhs, const MatrixR& rhs) {
+  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
+}
+
+// Matrix<Expression> * Matrix<Variable> => Matrix<Expression>
+template <typename MatrixL, typename MatrixR>
+typename std::enable_if<
+    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
+        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
+        std::is_same<typename MatrixL::Scalar, Expression>::value &&
+        std::is_same<typename MatrixR::Scalar, Variable>::value,
+    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
+                  MatrixR::ColsAtCompileTime>>::type
+operator*(const MatrixL& lhs, const MatrixR& rhs) {
+  return lhs * rhs.template cast<Expression>();
+}
+
+// Matrix<Variable> * Matrix<Expression> => Matrix<Expression>
+template <typename MatrixL, typename MatrixR>
+typename std::enable_if<
+    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
+        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
+        std::is_same<typename MatrixL::Scalar, Variable>::value &&
+        std::is_same<typename MatrixR::Scalar, Expression>::value,
+    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
+                  MatrixR::ColsAtCompileTime>>::type
+operator*(const MatrixL& lhs, const MatrixR& rhs) {
+  return lhs.template cast<Expression>() * rhs;
+}
+
+// Matrix<Variable> * Matrix<double> => Matrix<Expression>
+template <typename MatrixL, typename MatrixR>
+typename std::enable_if<
+    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
+        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
+        std::is_same<typename MatrixL::Scalar, Variable>::value &&
+        std::is_same<typename MatrixR::Scalar, double>::value,
+    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
+                  MatrixR::ColsAtCompileTime>>::type
+operator*(const MatrixL& lhs, const MatrixR& rhs) {
+  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
+}
+
+// Matrix<double> * Matrix<Variable> => Matrix<Expression>
+template <typename MatrixL, typename MatrixR>
+typename std::enable_if<
+    std::is_base_of<Eigen::MatrixBase<MatrixL>, MatrixL>::value &&
+        std::is_base_of<Eigen::MatrixBase<MatrixR>, MatrixR>::value &&
+        std::is_same<typename MatrixL::Scalar, double>::value &&
+        std::is_same<typename MatrixR::Scalar, Variable>::value,
+    Eigen::Matrix<Expression, MatrixL::RowsAtCompileTime,
+                  MatrixR::ColsAtCompileTime>>::type
+operator*(const MatrixL& lhs, const MatrixR& rhs) {
+  return lhs.template cast<Expression>() * rhs.template cast<Expression>();
+}
+
+/// Transform<double> * Transform<Expression> => Transform<Expression>
+template <int Dim, int LhsMode, int RhsMode, int LhsOptions, int RhsOptions>
+auto operator*(const Eigen::Transform<Expression, Dim, LhsMode, LhsOptions>& t1,
+               const Eigen::Transform<double, Dim, RhsMode, RhsOptions>& t2) {
+  return t1 * t2.template cast<Expression>();
+}
+
+/// Transform<Expression> * Transform<double> => Transform<Expression>
+template <int Dim, int LhsMode, int RhsMode, int LhsOptions, int RhsOptions>
+auto operator*(
+    const Eigen::Transform<double, Dim, LhsMode, LhsOptions>& t1,
+    const Eigen::Transform<Expression, Dim, RhsMode, RhsOptions>& t2) {
+  return t1.template cast<Expression>() * t2;
+}
+
+/// Evaluates a symbolic matrix @p m using @p env and @p random_generator.
+///
+/// If there is a random variable in @p m which is unassigned in @p env, this
+/// function uses @p random_generator to sample a value and use the value to
+/// substitute all occurrences of the random variable in @p m.
+///
+/// @returns a matrix of double whose size is the size of @p m.
+/// @throws std::runtime_error if NaN is detected during evaluation.
+/// @throws std::runtime_error if @p m includes unassigned random variables but
+///                               @p random_generator is `nullptr`.
+/// @pydrake_mkdoc_identifier{expression}
+template <typename Derived>
+std::enable_if_t<
+    std::is_same<typename Derived::Scalar, Expression>::value,
+    Eigen::Matrix<double, Derived::RowsAtCompileTime,
+                  Derived::ColsAtCompileTime, 0, Derived::MaxRowsAtCompileTime,
+                  Derived::MaxColsAtCompileTime>>
+Evaluate(const Eigen::MatrixBase<Derived>& m,
+         const Environment& env = Environment{},
+         RandomGenerator* random_generator = nullptr) {
+  // Note that the return type is written out explicitly to help gcc 5 (on
+  // ubuntu).  Previously the implementation used `auto`, and placed  an `
+  // .eval()` at the end to prevent lazy evaluation.
+  if (random_generator == nullptr) {
+    return m.unaryExpr([&env](const Expression& e) { return e.Evaluate(env); });
+  } else {
+    // Construct an environment by extending `env` by sampling values for the
+    // random variables in `m` which are unassigned in `env`.
+    const Environment env_with_random_variables{PopulateRandomVariables(
+        env, GetDistinctVariables(m), random_generator)};
+    return m.unaryExpr([&env_with_random_variables](const Expression& e) {
+      return e.Evaluate(env_with_random_variables);
+    });
+  }
+}
+
+/** Evaluates @p m using a given environment (by default, an empty environment).
+ *
+ * @throws std::runtime_error if there exists a variable in @p m whose value is
+ *                            not provided by @p env.
+ * @throws std::runtime_error if NaN is detected during evaluation.
+ */
+Eigen::SparseMatrix<double> Evaluate(
+    const Eigen::Ref<const Eigen::SparseMatrix<Expression>>& m,
+    const Environment& env = Environment{});
+
+/// Substitutes a symbolic matrix @p m using a given substitution @p subst.
+///
+/// @returns a matrix of symbolic expressions whose size is the size of @p m.
+/// @throws std::runtime_error if NaN is detected during substitution.
+template <typename Derived>
+Eigen::Matrix<Expression, Derived::RowsAtCompileTime,
+              Derived::ColsAtCompileTime, 0, Derived::MaxRowsAtCompileTime,
+              Derived::MaxColsAtCompileTime>
+Substitute(const Eigen::MatrixBase<Derived>& m, const Substitution& subst) {
+  static_assert(std::is_same<typename Derived::Scalar, Expression>::value,
+                "Substitute only accepts a symbolic matrix.");
+  // Note that the return type is written out explicitly to help gcc 5 (on
+  // ubuntu).
+  return m.unaryExpr(
+      [&subst](const Expression& e) { return e.Substitute(subst); });
+}
+
+/// Substitutes @p var with @p e in a symbolic matrix @p m.
+///
+/// @returns a matrix of symbolic expressions whose size is the size of @p m.
+/// @throws std::runtime_error if NaN is detected during substitution.
+template <typename Derived>
+Eigen::Matrix<Expression, Derived::RowsAtCompileTime,
+              Derived::ColsAtCompileTime, 0, Derived::MaxRowsAtCompileTime,
+              Derived::MaxColsAtCompileTime>
+Substitute(const Eigen::MatrixBase<Derived>& m, const Variable& var,
+           const Expression& e) {
+  static_assert(std::is_same<typename Derived::Scalar, Expression>::value,
+                "Substitute only accepts a symbolic matrix.");
+  // Note that the return type is written out explicitly to help gcc 5 (on
+  // ubuntu).
+  return Substitute(m, Substitution{{var, e}});
+}
+
 /// Constructs a vector of variables from the vector of variable expressions.
 /// @throws std::logic_error if there is an expression in @p vec which is not a
 /// variable.
@@ -1397,20 +1421,18 @@ MatrixX<Expression> Jacobian(const Eigen::Ref<const VectorX<Expression>>& f,
 /// @p vars. J(i,j) contains ∂f(i)/∂vars(j).
 ///
 /// @pre {@p vars is non-empty}.
+/// @pydrake_mkdoc_identifier{expression}
 MatrixX<Expression> Jacobian(const Eigen::Ref<const VectorX<Expression>>& f,
                              const Eigen::Ref<const VectorX<Variable>>& vars);
 
-/// Returns the Taylor series expansion of `f` around `a` of order `order`.
-///
-/// @param[in] f     Symbolic expression to approximate using Taylor series
-///                  expansion.
-/// @param[in] a     Symbolic environment which specifies the point of
-///                  approximation. If a partial environment is provided,
-///                  the unspecified variables are treated as symbolic
-///                  variables (e.g. decision variable).
-/// @param[in] order Positive integer which specifies the maximum order of the
-///                  resulting polynomial approximating `f` around `a`.
-Expression TaylorExpand(const Expression& f, const Environment& a, int order);
+/// Checks if every element in `m` is affine in `vars`.
+/// @note If `m` is an empty matrix, it returns true.
+bool IsAffine(const Eigen::Ref<const MatrixX<Expression>>& m,
+              const Variables& vars);
+
+/// Checks if every element in `m` is affine.
+/// @note If `m` is an empty matrix, it returns true.
+bool IsAffine(const Eigen::Ref<const MatrixX<Expression>>& m);
 
 Expression TaylorExpand(const Expression& f, const Environment& a, int order,
                         bool in_error_coordinates);
@@ -1437,6 +1459,29 @@ CheckStructuralEquality(const DerivedA& m1, const DerivedB& m2) {
 }
 
 }  // namespace symbolic
+
+/** Provides specialization of @c cond function defined in drake/common/cond.h
+ * file. This specialization is required to handle @c double to @c
+ * symbolic::Expression conversion so that we can write one such as <tt>cond(x >
+ * 0.0, 1.0, -1.0)</tt>.
+ */
+template <typename... Rest>
+symbolic::Expression cond(const symbolic::Formula& f_cond, double v_then,
+                          Rest... rest) {
+  return if_then_else(f_cond, symbolic::Expression{v_then}, cond(rest...));
+}
+
+/// Specializes common/dummy_value.h.
+template <>
+struct dummy_value<symbolic::Expression> {
+  static symbolic::Expression get() { return symbolic::Expression::NaN(); }
+};
+
+/// Returns the symbolic expression's value() as a double.
+///
+/// @throws std::exception if it is not possible to evaluate the symbolic
+/// expression with an empty environment.
+double ExtractDoubleOrThrow(const symbolic::Expression& e);
 
 /*
  * Determine if two EigenBase<> types are matrices (non-column-vectors) of

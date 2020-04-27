@@ -18,7 +18,7 @@ namespace drake {
 namespace geometry {
 
 // TODO(DamrongGuoy): Remove this helper class when ContactSurface allows
-//  direct access to e_MN_ and grad_h_MN_W_.
+//  direct access to e_MN_.
 template <typename T>
 class ContactSurfaceTester {
  public:
@@ -28,21 +28,6 @@ class ContactSurfaceTester {
   const SurfaceMeshFieldLinear<T, T>& e_MN() const {
     DRAKE_DEMAND(surface_.e_MN_ != nullptr);
     return *(surface_.e_MN_);
-  }
-
-  const SurfaceMeshFieldLinear<Vector3<T>, T>& grad_h_MN_W() const {
-    DRAKE_DEMAND(surface_.grad_h_MN_W_ != nullptr);
-    return *(surface_.grad_h_MN_W_);
-  }
-
-  SurfaceMeshFieldLinear<T, T>& mutable_e_MN() const {
-    DRAKE_DEMAND(surface_.e_MN_ != nullptr);
-    return *(surface_.e_MN_);
-  }
-
-  SurfaceMeshFieldLinear<Vector3<T>, T>& mutable_grad_h_MN_W() const {
-    DRAKE_DEMAND(surface_.grad_h_MN_W_ != nullptr);
-    return *(surface_.grad_h_MN_W_);
   }
 
   SurfaceMesh<T>& mutable_mesh_W() const {
@@ -56,9 +41,8 @@ class ContactSurfaceTester {
 
 namespace {
 
-using Eigen::AngleAxisd;
-using math::RigidTransformd;
-using Eigen::Vector3d;
+using std::make_unique;
+using std::move;
 
 // TODO(DamrongGuoy): Consider splitting the test into several smaller tests
 //  including a separated mesh test.
@@ -107,7 +91,7 @@ std::unique_ptr<SurfaceMesh<T>> GenerateMesh() {
   std::vector<SurfaceVertex<T>> vertices;
   for (int v = 0; v < 4; ++v) vertices.emplace_back(vertex_data[v]);
   auto surface_mesh =
-      std::make_unique<SurfaceMesh<T>>(move(faces), std::move(vertices));
+      make_unique<SurfaceMesh<T>>(move(faces), move(vertices));
   return surface_mesh;
 }
 
@@ -127,23 +111,11 @@ ContactSurface<T> TestContactSurface() {
   const T e2{2.};
   const T e3{3.};
   std::vector<T> e_values = {e0, e1, e2, e3};
-  auto e_field = std::make_unique<SurfaceMeshFieldLinear<T, T>>(
-      "e", std::move(e_values), surface_mesh.get());
+  auto e_field = make_unique<SurfaceMeshFieldLinear<T, T>>(
+      "e", move(e_values), surface_mesh.get());
 
-  // Slightly different values of grad_h_MN_W at each vertex.
-  // We give names to the values at vertices for testing later.
-  const Vector3<T> g0(-0.1, -0.1, 1.);
-  const Vector3<T> g1(0.1, -0.1, 1.);
-  const Vector3<T> g2(0.1, 0.1, 1.);
-  const Vector3<T> g3(-0.1, 0.1, 1.);
-  std::vector<Vector3<T>> grad_h_MN_W_values = {g0, g1, g2, g3};
-  auto grad_h_MN_W_field =
-      std::make_unique<SurfaceMeshFieldLinear<Vector3<T>, T>>(
-          "grad_h_MN_W", std::move(grad_h_MN_W_values), surface_mesh.get());
-
-  ContactSurface<T> contact_surface(id_M, id_N, std::move(surface_mesh),
-                                    std::move(e_field),
-                                    std::move(grad_h_MN_W_field));
+  ContactSurface<T> contact_surface(id_M, id_N, move(surface_mesh),
+                                    move(e_field));
 
   // Start testing the ContactSurface<> data structure.
   EXPECT_EQ(id_M, contact_surface.id_M());
@@ -159,21 +131,6 @@ ContactSurface<T> TestContactSurface() {
     const typename SurfaceMesh<T>::Barycentric b{0.2, 0.3, 0.5};
     const T expect_e = b(0) * e0 + b(1) * e1 + b(2) * e2;
     EXPECT_EQ(expect_e, contact_surface.EvaluateE_MN(f0, b));
-  }
-  // Tests evaluation of `grad_h_MN_W` on face f1 {2, 3, 0}.
-  {
-    const SurfaceFaceIndex f1(1);
-    const typename SurfaceMesh<T>::Barycentric b{0.6, 0.3, 0.1};
-    // On face f1, we have these quantities.
-    //---+--------+----------+-----------------
-    // v | vertex | grad_h_MN_W | barycentric
-    //---+--------+-------------+--------------
-    // 0 |   v2   |      g2     |     0.6
-    // 1 |   v3   |      g3     |     0.3
-    // 2 |   v0   |      g0     |     0.1
-    //---+--------+-------------+--------------
-    const Vector3<T> expect_g = T(0.6) * g2 + T(0.3) * g3 + T(0.1) * g0;
-    EXPECT_EQ(expect_g, contact_surface.EvaluateGrad_h_MN_W(f1, b));
   }
   // Tests area() of triangular faces.
   {
@@ -205,7 +162,6 @@ GTEST_TEST(ContactSurfaceTest, TestCopy) {
   const SurfaceFaceIndex f(0);
   const typename SurfaceMesh<double>::Barycentric b{0.2, 0.3, 0.5};
   EXPECT_EQ(original.EvaluateE_MN(f, b), copy.EvaluateE_MN(f, b));
-  EXPECT_EQ(original.EvaluateGrad_h_MN_W(f, b), copy.EvaluateGrad_h_MN_W(f, b));
 }
 
 // Tests the equality comparisons.
@@ -222,17 +178,22 @@ GTEST_TEST(ContactSurfaceTest, TestEqual) {
   ContactSurfaceTester<double>(surface1).mutable_mesh_W().ReverseFaceWinding();
   EXPECT_FALSE(surface.Equal(surface1));
 
-  // Different pressure field.
-  auto surface2 = ContactSurface<double>(surface);
-  ContactSurfaceTester<double>(surface2).mutable_e_MN().mutable_values()[0] +=
-      2.0;
+  // Equal mesh, Different pressure field.
+  // First, copy the mesh.
+  auto mesh2 = make_unique<SurfaceMesh<double>>(surface.mesh_W());
+  // TODO(DamrongGuoy): Remove this cast when we remove MeshField and use
+  //  only MeshFieldLinear.
+  auto field = dynamic_cast<const SurfaceMeshFieldLinear<double, double>*>(
+                   &surface.e_MN());
+  DRAKE_DEMAND(field);
+  // Then, copy the field values and change it.
+  std::vector<double> field2_values(field->values());
+  field2_values.at(0) += 2.0;
+  auto field2 = make_unique<SurfaceMeshFieldLinear<double, double>>(
+                    field->name(), move(field2_values), mesh2.get());
+  auto surface2 = ContactSurface<double>(surface.id_M(), surface.id_N(),
+                                         move(mesh2), move(field2));
   EXPECT_FALSE(surface.Equal(surface2));
-
-  // Different grad h field.
-  auto surface3 = ContactSurface<double>(surface);
-  ContactSurfaceTester<double>(surface3).mutable_grad_h_MN_W()
-      .mutable_values()[0][0] += 2.;
-  EXPECT_FALSE(surface.Equal(surface3));
 }
 
 // Tests the constructor of ContactSurface that when id_M is greater than
@@ -240,14 +201,12 @@ GTEST_TEST(ContactSurfaceTest, TestEqual) {
 GTEST_TEST(ContactSurfaceTest, TestSwapMAndN) {
   // Create the original contact surface for comparison later.
   const ContactSurface<double> original = TestContactSurface<double>();
-  auto mesh = std::make_unique<SurfaceMesh<double>>(original.mesh_W());
+  auto mesh = make_unique<SurfaceMesh<double>>(original.mesh_W());
   SurfaceMesh<double>* mesh_pointer = mesh.get();
   // TODO(DamrongGuoy): Remove `original_tester` when ContactSurface allows
-  //  direct access to e_MN and grad_h_MN_W.
+  //  direct access to e_MN.
   const ContactSurfaceTester<double> original_tester(original);
   std::vector<double> e_MN_values = original_tester.e_MN().values();
-  std::vector<Vector3<double>> grad_h_MN_W_values =
-      original_tester.grad_h_MN_W().values();
 
   // Create id_M after id_N, so id_M > id_N. This condition will trigger
   // SwapMAndN in the constructor of ContactSurface.
@@ -255,11 +214,9 @@ GTEST_TEST(ContactSurfaceTest, TestSwapMAndN) {
   auto id_M = GeometryId::get_new_id();
   ASSERT_LT(id_N, id_M);
   ContactSurface<double> dut(
-      id_M, id_N, std::move(mesh),
-      std::make_unique<SurfaceMeshFieldLinear<double, double>>(
-          "e_MN", std::move(e_MN_values), mesh_pointer),
-      std::make_unique<SurfaceMeshFieldLinear<Vector3<double>, double>>(
-          "grad_h_MN_W", std::move(grad_h_MN_W_values), mesh_pointer));
+      id_M, id_N, move(mesh),
+      make_unique<SurfaceMeshFieldLinear<double, double>>(
+          "e_MN", move(e_MN_values), mesh_pointer));
 
   // We rely on the underlying meshes and mesh fields to *do* the right thing.
   // These tests are just to confirm that those things changed where we
@@ -280,17 +237,11 @@ GTEST_TEST(ContactSurfaceTest, TestSwapMAndN) {
         are_identical(dut.mesh_W().element(f), original.mesh_W().element(f)));
   }
 
-  // Test the mesh fields by evaluating each field, once per face for an
-  // arbitrary point Q on the interior of the triangle. We expect:
-  //    e_MN function hasn't changed.
-  //    grad_H function has been mirrored.
+  // Evaluate the mesh field, once per face for an arbitrary point Q on the
+  // interior of the triangle. We expect e_MN function hasn't changed.
   const SurfaceMesh<double>::Barycentric b_Q{0.25, 0.25, 0.5};
   for (SurfaceFaceIndex f(0); f < original.mesh_W().num_faces(); ++f) {
     EXPECT_EQ(dut.EvaluateE_MN(f, b_Q), original.EvaluateE_MN(f, b_Q));
-    const Vector3d expected_normal = -original.EvaluateGrad_h_MN_W(f, b_Q);
-    EXPECT_TRUE(CompareMatrices(dut.EvaluateGrad_h_MN_W(f, b_Q),
-                                expected_normal,
-                                std::numeric_limits<double>::epsilon()));
   }
 }
 

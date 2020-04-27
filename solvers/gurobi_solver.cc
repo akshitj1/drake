@@ -19,6 +19,7 @@
 #include "gurobi_c.h"
 
 #include "drake/common/drake_assert.h"
+#include "drake/common/scope_exit.h"
 #include "drake/common/scoped_singleton.h"
 #include "drake/common/text_logging.h"
 #include "drake/math/eigen_sparse_triplet.h"
@@ -29,14 +30,6 @@
 namespace drake {
 namespace solvers {
 namespace {
-
-// TODO(jwnimmer-tri) Add a reusable scope_guard to //common.
-// Make a scope exit guard -- an object that when destroyed runs `func`.
-auto MakeGuard(std::function<void()> func) {
-  // The shared_ptr deleter func is always invoked, even for nullptrs.
-  // http://en.cppreference.com/w/cpp/memory/shared_ptr/%7Eshared_ptr
-  return std::shared_ptr<void>(nullptr, [=](void*) { func(); });
-}
 
 // Information to be passed through a Gurobi C callback to
 // grant it information about its problem (the host
@@ -693,6 +686,11 @@ void GurobiSolver::DoSolve(
     const Eigen::VectorXd& initial_guess,
     const SolverOptions& merged_options,
     MathematicalProgramResult* result) const {
+  if (!prog.GetVariableScaling().empty()) {
+    static const logging::Warn log_once(
+      "GurobiSolver doesn't support the feature of variable scaling.");
+  }
+
   if (!license_) {
     license_ = AcquireLicense();
   }
@@ -778,9 +776,9 @@ void GurobiSolver::DoSolve(
   GRBmodel* model = nullptr;
   GRBnewmodel(env, &model, "gurobi_model", num_gurobi_vars, nullptr, &xlow[0],
               &xupp[0], gurobi_var_type.data(), nullptr);
-  auto guard = MakeGuard([model]() {
-      GRBfreemodel(model);
-    });
+  ScopeExit guard([model]() {
+    GRBfreemodel(model);
+  });
 
   int error = 0;
   // TODO(naveenoid) : This needs access externally.
@@ -836,11 +834,6 @@ void GurobiSolver::DoSolve(
     }
   }
 
-  if (initial_guess.rows() != prog.num_vars()) {
-    throw std::invalid_argument(fmt::format(
-        "The initial guess has {} rows, but {} rows were expected.",
-        initial_guess.rows(), prog.num_vars()));
-  }
   for (int i = 0; i < static_cast<int>(prog.num_vars()); ++i) {
     if (!error && !std::isnan(initial_guess(i))) {
       error = GRBsetdblattrelement(model, "Start", i, initial_guess(i));

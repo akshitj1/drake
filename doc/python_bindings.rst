@@ -16,6 +16,11 @@ installed as a single package called ``pydrake``.
    Please uninstall Anaconda or remove the Anaconda ``bin`` directory from the
    ``PATH`` before building or using the Drake Python bindings.
 
+.. warning::
+   On macOS, Drake only supports Python 3.8, which is located at
+   ``/usr/local/opt/python@3.8/bin/python3`` and is not usually on the
+   ``PATH``.
+
 .. _python-bindings-binary:
 
 Installation
@@ -46,15 +51,21 @@ Ensure that you have the system dependencies:
 
     /opt/drake/share/drake/setup/install_prereqs
 
-Next, ensure that your ``PYTHONPATH`` is properly configured. For example, for
-the Python 3 bindings on Bionic:
+Next, ensure that your ``PYTHONPATH`` is properly configured.
+
+*Ubuntu 18.04 (Bionic):*
 
 .. code-block:: shell
 
     export PYTHONPATH=/opt/drake/lib/python3.6/site-packages:${PYTHONPATH}
 
-See :ref:`below <using-python-bindings>` for usage instructions. If using
-macOS, pay special attention to :ref:`this note <using-python-mac-os-path>`.
+*macOS:*
+
+.. code-block:: shell
+
+    export PYTHONPATH=/opt/drake/lib/python3.8/site-packages:${PYTHONPATH}
+
+See :ref:`below <using-python-bindings>` for usage instructions.
 
 Inside ``virtualenv``
 ^^^^^^^^^^^^^^^^^^^^^
@@ -122,12 +133,19 @@ MOSEK, without building tests:
 
 You will also need to have your ``PYTHONPATH`` configured correctly.
 
-As an example, continuing from the code snippets from above for Bionic:
+*Ubuntu 18.04 (Bionic):*
 
 .. code-block:: shell
 
     cd drake-build
     export PYTHONPATH=${PWD}/install/lib/python3.6/site-packages:${PYTHONPATH}
+
+*macOS:*
+
+.. code-block:: shell
+
+    cd drake-build
+    export PYTHONPATH=${PWD}/install/lib/python3.8/site-packages:${PYTHONPATH}
 
 .. _using-python-bindings:
 
@@ -138,11 +156,20 @@ Check Installation
 ------------------
 
 After following the above install steps, check to ensure you can import
-``pydrake``. As an example for Python 3:
+``pydrake``.
+
+*Ubuntu 18.04 (Bionic):*
 
 .. code-block:: shell
 
     python3 -c 'import pydrake; print(pydrake.__file__)'
+
+*macOS:*
+
+.. code-block:: shell
+
+    /usr/local/opt/python@3.8/bin/python3 -c 'import pydrake; print(pydrake.__file__)'
+
 
 .. _using-python-mac-os-path:
 
@@ -153,11 +180,18 @@ After following the above install steps, check to ensure you can import
     that you define the ``${GUROBI_PATH}`` environment variable, or specify
     ``${GUROBI_INCLUDE_DIR}`` via CMake.
 
+.. _whats-available-from-python:
+
 What's Available from Python
 ----------------------------
 
-The most up-to-date demonstrations of what can be done using ``pydrake`` are
-the ``pydrake`` unit tests themselves. You can see all of them inside the
+You should first browse the `Python API <pydrake/index.html#://>`_ to see what
+modules are available. The most up-to-date high-level demonstrations of what
+can be done using ``pydrake`` are in Drake's :ref:`Tutorials <tutorials>` and
+the `Underactuated Robotics Textbook <http://underactuated.mit.edu/>`_.
+
+You can also see lower-level usages of the API in the ``pydrake`` unit tests
+themselves, which you can find inside of the
 ``drake/bindings/python/pydrake/**/test`` folders in the Drake source code.
 
 Here's an example snippet of code from ``pydrake``:
@@ -175,7 +209,7 @@ Here's an example snippet of code from ``pydrake``:
     from pydrake.systems.framework import DiagramBuilder
 
     builder = DiagramBuilder()
-    plant, _ = AddMultibodyPlantSceneGraph(builder)
+    plant, _ = AddMultibodyPlantSceneGraph(builder, 0.0)
     Parser(plant).AddModelFromFile(
         FindResourceOrThrow("drake/examples/pendulum/Pendulum.urdf"))
     plant.Finalize()
@@ -189,7 +223,7 @@ automatically. If you are writing non-prototype code, avoid using
 ``pydrake.all``; for more details, see ``help(pydrake.all)``.
 
 In all cases, try to avoid using ``from pydrake.all import *``, as it may
-introduce symbol collisions that are difficiult to debug.
+introduce symbol collisions that are difficult to debug.
 
 The above example, but using ``pydrake.all``:
 
@@ -200,7 +234,7 @@ The above example, but using ``pydrake.all``:
         Parser, Simulator)
 
     builder = DiagramBuilder()
-    plant, _ = AddMultibodyPlantSceneGraph(builder)
+    plant, _ = AddMultibodyPlantSceneGraph(builder, 0.0)
     Parser(plant).AddModelFromFile(
         FindResourceOrThrow("drake/examples/pendulum/Pendulum.urdf"))
     plant.Finalize()
@@ -215,7 +249,7 @@ explicitly refer to each symbol:
     import pydrake.all
 
     builder = pydrake.systems.framework.DiagramBuilder()
-    plant, _ = pydrake.multibody.plant.AddMultibodyPlantSceneGraph(builder)
+    plant, _ = pydrake.multibody.plant.AddMultibodyPlantSceneGraph(builder, 0.0)
     pydrake.multibody.parsing.Parser(plant).AddModelFromFile(
         pydrake.common.FindResourceOrThrow(
             "drake/examples/pendulum/Pendulum.urdf"))

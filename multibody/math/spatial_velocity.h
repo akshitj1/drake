@@ -44,7 +44,7 @@ template <typename T> class SpatialMomentum;
 /// For a more detailed introduction on spatial vectors and the monogram
 /// notation please refer to section @ref multibody_spatial_vectors.
 ///
-/// @tparam T The underlying scalar type. Must be a valid Eigen scalar.
+/// @tparam_default_scalar
 template <typename T>
 class SpatialVelocity : public SpatialVector<SpatialVelocity, T> {
   // We need the fully qualified class name below for the clang compiler to
@@ -266,10 +266,14 @@ class SpatialVelocity : public SpatialVector<SpatialVelocity, T> {
 ///
 /// The addition in the last expression is what is carried out by this operator;
 /// the caller must have already performed the necessary shift.
+///
+/// @relates SpatialVelocity
 template <typename T>
 inline SpatialVelocity<T> operator+(
     const SpatialVelocity<T>& V_MAb_E, const SpatialVelocity<T>& V_AB_E) {
-  return SpatialVelocity<T>(V_MAb_E.get_coeffs() + V_AB_E.get_coeffs());
+  // N.B. We use SpatialVector's implementation, though we provide the overload
+  // for specific documentation purposes.
+  return SpatialVelocity<T>(V_MAb_E) += V_AB_E;
 }
 
 /// The addition of two spatial velocities relates to the composition of
@@ -290,10 +294,14 @@ inline SpatialVelocity<T> operator+(
 /// as explained in the documentation for
 /// operator+(const SpatialVelocity<T>&, const SpatialVelocity<T>&) a shift
 /// operation with SpatialVelocity::Shift() operation is needed.
+///
+/// @relates SpatialVelocity
 template <typename T>
 inline SpatialVelocity<T> operator-(
     const SpatialVelocity<T>& V_MB_E, const SpatialVelocity<T>& V_MAb_E) {
-  return SpatialVelocity<T>(V_MB_E.get_coeffs() - V_MAb_E.get_coeffs());
+  // N.B. We use SpatialVector's implementation, though we provide the overload
+  // for specific documentation purposes.
+  return SpatialVelocity<T>(V_MB_E) -= V_MAb_E;
 }
 
 }  // namespace multibody

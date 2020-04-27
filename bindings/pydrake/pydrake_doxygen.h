@@ -94,6 +94,12 @@ When testing the values of NumPy matrices, please review the documentation in
 
 - `*_py`: A Python library (can be pure Python or pybind)
   - File Names: `*.py`, `*_py.cc`
+    - Each `*_py.cc` file should only define one package (a module; optionally
+    with multiple submodules under it).
+    - *Note*: If you need to split up a `{module}_py.cc` file for compilation
+    speed and clarity, use `{module}_py_{part}.cc` for source and
+    `{module}_py_{part}.h` for headers, and then include the headers into the
+    original module source file. `{part}` may not necessarily be a submodule.
 
 - `*_pybind`: A C++ library for adding pybind-specific utilities to be consumed
   by C++.
@@ -150,7 +156,7 @@ Drake uses a modified version of `mkdoc.py` from `pybind11`, where `libclang`
 Python bindings are used to generate C++ docstrings accessible to the C++
 binding code.
 
-These docstrings are avaialable within `constexpr struct ... pydrake_doc`
+These docstrings are available within `constexpr struct ... pydrake_doc`
 as `const char*` values . When these are not available or not suitable for
 Python documentation, provide custom strings. If this custom string is long,
 consider placing them in a heredoc string.
@@ -218,8 +224,13 @@ To browse the generated documentation strings that are available for use (or
 especially, to find out the names for overloaded functions' documentation),
 generate and open the docstring header:
 
-    bazel build //bindings/pydrake:generate_pybind_documentation_header
-    $EDITOR bazel-genfiles/bindings/pydrake/documentation_pybind.h
+    bazel build //bindings/pydrake:documentation_pybind.h
+    $EDITOR bazel-bin/bindings/pydrake/documentation_pybind.h
+
+Docstrings for attic components can be previewed in the following header:
+
+    bazel build //bindings/pydrake/attic:documentation_pybind.h
+    $EDITOR bazel-bin/bindings/pydrake/attic/documentation_pybind.h
 
 Search the comments for the symbol of interest, e.g.,
 `drake::math::RigidTransform::RigidTransform<T>`, and view the include file and
@@ -227,6 +238,17 @@ line corresponding to the symbol that the docstring was pulled from.
 
 @note This file may be large, on the order of ~100K lines; be sure to use an
 efficient editor!
+
+@note If you are debugging a certain file and want quicker generation and a
+smaller generated file, you can hack `mkdoc.py` to focus only on your include
+file of chioce. As an example, debugging `mathematical_program.h`:
+~~~{.py}
+    ...
+    assert len(include_files) > 0  # Existing code.
+    include_files = ["drake/solvers/mathematical_program.h"]  # HACK
+~~~
+This may break the bindings themselves, and should only be used for inspecting
+the output.
 
 For more detail:
 
@@ -306,7 +328,7 @@ Some aliases are provided; prefer these to the full spellings.
 
 `namespace py` is a shorthand alias to `pybind11` for consistency.
 
-@see py_reference, py_reference_internal for dealing with %common ownership
+@see @ref drake::pydrake::py_reference "py_reference", @ref drake::pydrake::py_reference_internal "py_reference_internal" for dealing with %common ownership
      issues.
 
 @note Downstream users should avoid `using namespace drake::pydrake`, as

@@ -9,12 +9,14 @@
 #include "drake/common/test_utilities/expect_no_throw.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/examples/pendulum/pendulum_plant.h"
+#include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/test_utilities/scalar_conversion.h"
 #include "drake/systems/primitives/test/affine_linear_test.h"
 
 using std::make_unique;
 using std::unique_ptr;
-using MatrixXd = drake::MatrixX<double>;
+using Eigen::MatrixXd;
+using Eigen::VectorXd;
 
 namespace drake {
 namespace systems {
@@ -57,7 +59,7 @@ GTEST_TEST(LinearSystemTestWithEmptyPort, EmptyPort) {
   // when the empty vector port is unconnected.
   auto context = dut.CreateDefaultContext();
   auto derivatives = dut.AllocateTimeDerivatives();
-  context->FixInputPort(0, Vector1d(0));
+  dut.get_input_port().FixValue(context.get(), 0.);
   DRAKE_EXPECT_NO_THROW(dut.CalcTimeDerivatives(*context, derivatives.get()));
 }
 
@@ -229,7 +231,7 @@ class TestLinearizeFromAffine : public ::testing::Test {
 // A,B,C,D matrices.
 TEST_F(TestLinearizeFromAffine, ContinuousAtEquilibrium) {
   auto context = continuous_system_->CreateDefaultContext();
-  context->FixInputPort(0, Vector1d::Constant(u0_));
+  continuous_system_->get_input_port().FixValue(context.get(), u0_);
 
   // Set x0 to the actual equilibrium point.
   context->get_mutable_continuous_state_vector().SetFromVector(
@@ -259,7 +261,7 @@ TEST_F(TestLinearizeFromAffine, ContinuousAtEquilibrium) {
 // not at equilibrium returns the original A,B,C,D matrices and affine terms.
 TEST_F(TestLinearizeFromAffine, ContinuousAtNonEquilibrium) {
   auto context = continuous_system_->CreateDefaultContext();
-  context->FixInputPort(0, Vector1d::Constant(u0_));
+  continuous_system_->get_input_port().FixValue(context.get(), u0_);
   context->get_mutable_continuous_state_vector().SetFromVector(x0_);
 
   // This Context is not an equilibrium point.
@@ -287,7 +289,7 @@ TEST_F(TestLinearizeFromAffine, ContinuousAtNonEquilibrium) {
 
 TEST_F(TestLinearizeFromAffine, DiscreteAtEquilibrium) {
   auto context = discrete_system_->CreateDefaultContext();
-  context->FixInputPort(0, Vector1d::Constant(u0_));
+  discrete_system_->get_input_port().FixValue(context.get(), u0_);
 
   // Set x0 to the actual equilibrium point.
   systems::BasicVector<double>& xd =
@@ -319,7 +321,7 @@ TEST_F(TestLinearizeFromAffine, DiscreteAtEquilibrium) {
 // at equilibrium returns the original A,B,C,D matrices and affine terms.
 TEST_F(TestLinearizeFromAffine, DiscreteAtNonEquilibrium) {
   auto context = discrete_system_->CreateDefaultContext();
-  context->FixInputPort(0, Vector1d::Constant(u0_));
+  discrete_system_->get_input_port().FixValue(context.get(), u0_);
   systems::BasicVector<double>& xd =
       context->get_mutable_discrete_state().get_mutable_vector();
   xd.SetFromVector(x0_);
@@ -402,6 +404,41 @@ class EmptyStateSystemWithMixedInputs final : public LeafSystem<T> {
       : EmptyStateSystemWithMixedInputs<T>() {}
 };
 
+// Confirm that IsDifferenceEquationSystem works as expected for the family
+// of test systems we have here.
+GTEST_TEST(TestSystem, IsDifferentEquationSystem) {
+  double returned_time_period = 0.42;
+
+  const Vector1d a(1);
+  const Vector1d b(1);
+  const Vector1d c(1);
+  const Vector1d d(1);
+  const LinearSystem<double> continuous_time_system(a, b, c, d);
+  EXPECT_FALSE(
+      continuous_time_system.IsDifferenceEquationSystem(&returned_time_period));
+  // The argument value should not have changed.
+  EXPECT_EQ(returned_time_period, 0.42);
+
+  const double time_period = 0.1;
+  const LinearSystem<double> discrete_time_system(a, b, c, d, time_period);
+  EXPECT_TRUE(discrete_time_system.IsDifferenceEquationSystem());
+  EXPECT_TRUE(
+      discrete_time_system.IsDifferenceEquationSystem(&returned_time_period));
+  EXPECT_EQ(returned_time_period, time_period);
+
+  returned_time_period = 3.71;
+  const TestNonPeriodicSystem non_periodic_system;
+  EXPECT_FALSE(
+      non_periodic_system.IsDifferenceEquationSystem(&returned_time_period));
+  EXPECT_EQ(returned_time_period, 3.71);
+
+  const EmptyStateSystemWithAbstractInput<double> empty_system1;
+  EXPECT_FALSE(empty_system1.IsDifferenceEquationSystem());
+
+  const EmptyStateSystemWithMixedInputs<double> empty_system2;
+  EXPECT_FALSE(empty_system2.IsDifferenceEquationSystem());
+}
+
 // Test that linearizing a system with abstract input port throws an
 // exception when trying to linearize that port.
 GTEST_TEST(TestLinearize, LinearizingOnAbstractPortThrows) {
@@ -423,11 +460,11 @@ GTEST_TEST(TestLinearize, LinearizingWithMixedInputs) {
 
   // Now check with the vector-valued input port connected but the abstract
   // input port not yet connected.
-  context->FixInputPort(0, Vector1<double>(0.0));
+  system.get_input_port(0).FixValue(context.get(), 0.0);
   DRAKE_EXPECT_NO_THROW(Linearize(system, *context));
 
   // Now check with the abstract input port connected.
-  context->FixInputPort(1, Value<std::vector<double>>());
+  system.get_input_port(1).FixValue(context.get(), std::vector<double>());
   DRAKE_EXPECT_NO_THROW(Linearize(system, *context));
 }
 
@@ -596,9 +633,9 @@ TEST_F(LinearSystemSymbolicTest, MakeLinearSystemException4) {
 TEST_F(LinearSystemTest, LinearizeSystemWithParameters) {
   examples::pendulum::PendulumPlant<double> pendulum;
   auto context = pendulum.CreateDefaultContext();
-  auto input = std::make_unique<examples::pendulum::PendulumInput<double>>();
-  input->set_tau(0.0);
-  context->FixInputPort(0, std::move(input));
+  auto input = examples::pendulum::PendulumInput<double>();
+  input.set_tau(0.0);
+  pendulum.get_input_port().FixValue(context.get(), input);
   examples::pendulum::PendulumState<double>& state =
       dynamic_cast<examples::pendulum::PendulumState<double>&>(
           context->get_mutable_continuous_state_vector());
@@ -644,7 +681,7 @@ GTEST_TEST(LinearizeTest, NoState) {
   // Check that I get back the original system (continuous time).
   const AffineSystem<double> sys(A, B, f0, C, D, y0);
   auto context = sys.CreateDefaultContext();
-  context->FixInputPort(0, Eigen::Vector2d{7, 8});
+  sys.get_input_port().FixValue(context.get(), Eigen::Vector2d{7, 8});
 
   const auto taylor_sys = FirstOrderTaylorApproximation(sys, *context);
   EXPECT_TRUE(CompareMatrices(taylor_sys->A(), A, tol));
@@ -657,7 +694,7 @@ GTEST_TEST(LinearizeTest, NoState) {
   // Check that I get back the original system (discrete time).
   const AffineSystem<double> sys2(A, B, f0, C, D, y0, 0.1);
   auto context2 = sys2.CreateDefaultContext();
-  context2->FixInputPort(0, Eigen::Vector2d{7, 8});
+  sys2.get_input_port().FixValue(context2.get(), Eigen::Vector2d{7, 8});
 
   const auto taylor_sys2 = FirstOrderTaylorApproximation(sys2, *context2);
   EXPECT_TRUE(CompareMatrices(taylor_sys2->A(), A, tol));
@@ -764,8 +801,8 @@ void TestMimo(bool is_discrete) {
   MimoSystem<double> sys(is_discrete);
   auto context = sys.CreateDefaultContext();
   // System is linear, so input and state values don't matter.
-  context->FixInputPort(0, Vector1d::Zero());
-  context->FixInputPort(1, Eigen::Vector3d::Zero());
+  sys.get_input_port(0).FixValue(context.get(), 0.0);
+  sys.get_input_port(1).FixValue(context.get(), Eigen::Vector3d::Zero());
 
   const double tol = 1e-8;
 
@@ -801,6 +838,47 @@ GTEST_TEST(LinearizeTest, TestInputOutputPorts) {
 
   // Discrete-time version.
   TestMimo(true);
+}
+
+GTEST_TEST(LinearSystemIssueTest, Issue12706) {
+  // Ensure we do not segfault when connecting a double-integrator with a
+  // "controller", both implemented using LinearSystem (#12706).
+  DiagramBuilder<double> builder;
+
+  // Create a simple double-integrator plant.
+  MatrixXd Ap(2, 2);
+  Ap << 0, 1, 0, 0;
+  MatrixXd Bp(2, 1);
+  Bp << 0, 1;
+  MatrixXd Cp = MatrixXd::Identity(2, 2);
+  MatrixXd Dp = MatrixXd::Zero(2, 1);
+  auto* plant = builder.AddSystem(
+      std::make_unique<LinearSystem<double>>(Ap, Bp, Cp, Dp));
+
+  // Create a simple PD-controller.
+  MatrixXd Ac(0, 0);
+  MatrixXd Bc(0, 2);
+  MatrixXd Cc(1, 0);
+  MatrixXd Dc(1, 2);
+  Dc << -1, -1;
+  auto* controller = builder.AddSystem(
+      std::make_unique<LinearSystem<double>>(Ac, Bc, Cc, Dc));
+
+  // Connect, build, and allocate a context.
+  builder.Connect(controller->get_output_port(), plant->get_input_port());
+  builder.Connect(plant->get_output_port(), controller->get_input_port());
+  auto diagram = builder.Build();
+  auto context = diagram->CreateDefaultContext();
+
+  // Compute the output, namely to ensure that we do not segfault.
+  const VectorXd y =
+      plant->get_output_port().Eval(plant->GetMyContextFromRoot(*context));
+  const VectorXd y_expected = VectorXd::Zero(2);
+  EXPECT_TRUE(CompareMatrices(y, y_expected));
+
+  // Check feedthrough.
+  EXPECT_FALSE(plant->HasDirectFeedthrough(0));
+  EXPECT_TRUE(controller->HasDirectFeedthrough(0));
 }
 
 }  // namespace

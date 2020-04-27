@@ -212,16 +212,7 @@ class QueryObject;
  //   - Finalizing API for topology changes at discrete events.
  @endcond
 
- @tparam T The scalar type. Must be a valid Eigen scalar.
-
- Instantiated templates for the following kinds of T's are provided:
-
- - double
- - AutoDiffXd
-
- They are already available to link against in the containing library.
- No other values for T are currently supported.
-
+ @tparam_nonsymbolic_scalar
  @ingroup systems
  */
 template <typename T>
@@ -592,7 +583,9 @@ class SceneGraph final : public systems::LeafSystem<T> {
    These methods include the model- and context-modifying variants.  */
   //@{
 
-  /** Assigns the proximity role to the geometry indicated by `geometry_id`.  */
+  /** Assigns the proximity role to the geometry indicated by `geometry_id`.
+   @pydrake_mkdoc_identifier{proximity_direct}
+   */
   void AssignRole(SourceId source_id, GeometryId geometry_id,
                   ProximityProperties properties,
                   RoleAssign assign = RoleAssign::kNew);
@@ -600,12 +593,23 @@ class SceneGraph final : public systems::LeafSystem<T> {
   /** systems::Context-modifying variant of
    @ref AssignRole(SourceId,GeometryId,ProximityProperties) "AssignRole()" for
    proximity properties. Rather than modifying %SceneGraph's model, it modifies
-   the copy of the model stored in the provided context.  */
+   the copy of the model stored in the provided context.
+   @pydrake_mkdoc_identifier{proximity_context}
+   */
   void AssignRole(systems::Context<T>* context, SourceId source_id,
                   GeometryId geometry_id, ProximityProperties properties,
                   RoleAssign assign = RoleAssign::kNew) const;
 
   /** Assigns the perception role to the geometry indicated by `geometry_id`.
+
+   By default, a geometry with a perception role will be reified by all
+   render::RenderEngine instances. This behavior can be changed. Renderers can
+   be explicitly whitelisted via the ('renderer', 'accepting') perception
+   property. Its type is std::set<std::string> and it contains the names of
+   all the renderers that _may_ reify it. If no property is defined (or an
+   empty set is given), then the default behavior of all renderers attempting
+   to reify it will be restored.
+   @pydrake_mkdoc_identifier{perception_direct}
    */
   void AssignRole(SourceId source_id, GeometryId geometry_id,
                   PerceptionProperties properties,
@@ -614,12 +618,15 @@ class SceneGraph final : public systems::LeafSystem<T> {
   /** systems::Context-modifying variant of
    @ref AssignRole(SourceId,GeometryId,PerceptionProperties) "AssignRole()" for
    perception properties. Rather than modifying %SceneGraph's model, it modifies
-   the copy of the model stored in the provided context.  */
+   the copy of the model stored in the provided context.
+   @pydrake_mkdoc_identifier{perception_context}
+   */
   void AssignRole(systems::Context<T>* context, SourceId source_id,
                   GeometryId geometry_id, PerceptionProperties properties,
                   RoleAssign assign = RoleAssign::kNew) const;
 
   /** Assigns the illustration role to the geometry indicated by `geometry_id`.
+   @pydrake_mkdoc_identifier{illustration_direct}
    */
   void AssignRole(SourceId source_id, GeometryId geometry_id,
                   IllustrationProperties properties,
@@ -628,7 +635,9 @@ class SceneGraph final : public systems::LeafSystem<T> {
   /** systems::Context-modifying variant of
    @ref AssignRole(SourceId,GeometryId,IllustrationProperties) "AssignRole()"
    for illustration properties. Rather than modifying %SceneGraph's model, it
-   modifies the copy of the model stored in the provided context.  */
+   modifies the copy of the model stored in the provided context.
+   @pydrake_mkdoc_identifier{illustration_context}
+   */
   void AssignRole(systems::Context<T>* context, SourceId source_id,
                   GeometryId geometry_id, IllustrationProperties properties,
                   RoleAssign assign = RoleAssign::kNew) const;

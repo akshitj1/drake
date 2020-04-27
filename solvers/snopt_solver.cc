@@ -1,6 +1,7 @@
 #include "drake/solvers/snopt_solver.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -8,6 +9,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <utility>
@@ -16,6 +18,7 @@
 // NOLINTNEXTLINE(build/include)
 #include "snopt.h"
 
+#include "drake/common/scope_exit.h"
 #include "drake/common/text_logging.h"
 #include "drake/math/autodiff.h"
 #include "drake/solvers/mathematical_program.h"
@@ -112,7 +115,7 @@ template<>
 struct SnoptImpl<false> {
   // The unit number for our "Print file" log for the current thread.  When the
   // "Print file" option is not enabled, this is zero.
-  thread_local static int g_iprint;
+  thread_local inline static int g_iprint;
 
   template <typename Int>
   static void snend(
@@ -192,9 +195,6 @@ struct SnoptImpl<false> {
   }
 };
 
-// The next line is C++ boilerplate to declare linker storage for this global.
-thread_local int SnoptImpl<false>::g_iprint;
-
 // Choose the correct SnoptImpl specialization.
 #pragma GCC diagnostic push  // Silence spurious warnings from macOS llvm.
 #pragma GCC diagnostic ignored "-Wpragmas"
@@ -210,14 +210,6 @@ using Snopt = SnoptImpl<kIsSnopt76>;
 namespace drake {
 namespace solvers {
 namespace {
-
-// TODO(jwnimmer-tri) Add a reusable scope_guard to //common.
-// Make a scope exit guard -- an object that when destroyed runs `func`.
-auto MakeGuard(std::function<void()> func) {
-  // The shared_ptr deleter func is always invoked, even for nullptrs.
-  // http://en.cppreference.com/w/cpp/memory/shared_ptr/%7Eshared_ptr
-  return std::shared_ptr<void>(nullptr, [=](void*) { func(); });
-}
 
 // This class is used for passing additional info to the snopt_userfun, which
 // evaluates the value and gradient of the cost and constraints. Apart from the
@@ -345,19 +337,18 @@ int SingleNonlinearConstraintSize<LinearComplementarityConstraint>(
 // LinearComplementaryConstraint, we will evaluate its nonlinear constraint
 // differently, than its Eval function.
 template <typename C>
-void EvaluateSingleNonlinearConstraint(const C& constraint,
-                                       const Eigen::VectorXd& this_x,
-                                       AutoDiffVecXd* ty) {
+void EvaluateSingleNonlinearConstraint(
+    const C& constraint, const Eigen::Ref<const AutoDiffVecXd>& tx,
+    AutoDiffVecXd* ty) {
   ty->resize(SingleNonlinearConstraintSize(constraint));
-  constraint.Eval(math::initializeAutoDiff(this_x), ty);
+  constraint.Eval(tx, ty);
 }
 
 template <>
 void EvaluateSingleNonlinearConstraint<LinearComplementarityConstraint>(
     const LinearComplementarityConstraint& constraint,
-    const Eigen::VectorXd& this_x, AutoDiffVecXd* ty) {
+    const Eigen::Ref<const AutoDiffVecXd>& tx, AutoDiffVecXd* ty) {
   ty->resize(1);
-  auto tx = math::initializeAutoDiff(this_x);
   (*ty)(0) = tx.dot(constraint.M().cast<AutoDiffXd>() * tx +
                     constraint.q().cast<AutoDiffXd>());
 }
@@ -380,6 +371,7 @@ void EvaluateNonlinearConstraints(
     const MathematicalProgram& prog,
     const std::vector<Binding<C>>& constraint_list, double F[], double G[],
     size_t* constraint_index, size_t* grad_index, const Eigen::VectorXd& xvec) {
+  const auto & scale_map = prog.GetVariableScaling();
   Eigen::VectorXd this_x;
   for (const auto& binding : constraint_list) {
     const auto& c = binding.evaluator();
@@ -387,13 +379,27 @@ void EvaluateNonlinearConstraints(
 
     const int num_variables = binding.GetNumElements();
     this_x.resize(num_variables);
+    // binding_var_indices[i] is the index of binding.variables()(i) in prog's
+    // decision variables.
+    std::vector<int> binding_var_indices(num_variables);
     for (int i = 0; i < num_variables; ++i) {
-      this_x(i) = xvec(prog.FindDecisionVariableIndex(binding.variables()(i)));
+      binding_var_indices[i] =
+          prog.FindDecisionVariableIndex(binding.variables()(i));
+      this_x(i) = xvec(binding_var_indices[i]);
+    }
+
+    // Scale this_x
+    auto this_x_scaled = math::initializeAutoDiff(this_x);
+    for (int i = 0; i < num_variables; i++) {
+      auto it = scale_map.find(binding_var_indices[i]);
+      if (it != scale_map.end()) {
+        this_x_scaled(i) *= it->second;
+      }
     }
 
     AutoDiffVecXd ty;
     ty.resize(num_constraints);
-    EvaluateSingleNonlinearConstraint(*c, this_x, &ty);
+    EvaluateSingleNonlinearConstraint(*c, this_x_scaled, &ty);
 
     for (int i = 0; i < num_constraints; i++) {
       F[(*constraint_index)++] = ty(i).value();
@@ -465,6 +471,7 @@ void EvaluateAndAddNonlinearCosts(
     const MathematicalProgram& prog,
     const std::vector<Binding<C>>& nonlinear_costs, const Eigen::VectorXd& x,
     double* total_cost, std::vector<double>* nonlinear_cost_gradients) {
+  const auto & scale_map = prog.GetVariableScaling();
   for (const auto& binding : nonlinear_costs) {
     const auto& obj = binding.evaluator();
     const int num_variables = binding.GetNumElements();
@@ -479,7 +486,15 @@ void EvaluateAndAddNonlinearCosts(
       this_x(i) = x(binding_var_indices[i]);
     }
     AutoDiffVecXd ty(1);
-    obj->Eval(math::initializeAutoDiff(this_x), &ty);
+    // Scale this_x
+    auto this_x_scaled = math::initializeAutoDiff(this_x);
+    for (int i = 0; i < num_variables; i++) {
+      auto it = scale_map.find(binding_var_indices[i]);
+      if (it != scale_map.end()) {
+        this_x_scaled(i) *= it->second;
+      }
+    }
+    obj->Eval(this_x_scaled, &ty);
 
     *total_cost += ty(0).value();
     if (ty(0).derivatives().size() > 0) {
@@ -518,6 +533,7 @@ void snopt_userfun(int* Status, int* n, double x[], int* needF, int* neF,
                    int* lencu, int iu[], int* leniu, double ru[], int* lenru) {
   const SnoptUserFunInfo& info = SnoptUserFunInfo::GetFrom(iu, *leniu);
   const MathematicalProgram& current_problem = info.mathematical_program();
+  const auto & scale_map = current_problem.GetVariableScaling();
 
   Eigen::VectorXd xvec(*n);
   for (int i = 0; i < *n; i++) {
@@ -529,7 +545,12 @@ void snopt_userfun(int* Status, int* n, double x[], int* needF, int* neF,
 
   size_t grad_index = 0;
 
-  current_problem.EvalVisualizationCallbacks(xvec);
+  // Scale xvec
+  Eigen::VectorXd xvec_scaled = xvec;
+  for (const auto & member : scale_map) {
+    xvec_scaled(member.first) *= member.second;
+  }
+  current_problem.EvalVisualizationCallbacks(xvec_scaled);
 
   EvaluateAllNonlinearCosts(current_problem, xvec,
                             info.nonlinear_cost_gradient_indices(), F, G,
@@ -717,13 +738,22 @@ void UpdateLinearCost(
     const MathematicalProgram& prog,
     std::unordered_map<int, double>* variable_to_coefficient_map,
     double* linear_cost_constant_term) {
+  const auto & scale_map = prog.GetVariableScaling();
+  double scale = 1;
   for (const auto& binding : prog.linear_costs()) {
     *linear_cost_constant_term += binding.evaluator()->b();
     for (int k = 0; k < static_cast<int>(binding.GetNumElements()); ++k) {
       const int variable_index =
           prog.FindDecisionVariableIndex(binding.variables()(k));
+      // Scale the coefficient as well
+      auto it = scale_map.find(variable_index);
+      if (it != scale_map.end()) {
+        scale = it->second;
+      } else {
+        scale = 1;
+      }
       (*variable_to_coefficient_map)[variable_index] +=
-          binding.evaluator()->a()(k);
+          binding.evaluator()->a()(k) * scale;
     }
   }
 }
@@ -773,6 +803,7 @@ void SolveWithGivenOptions(
 
   SnoptUserFunInfo user_info(&prog);
   WorkspaceStorage storage(&user_info);
+  const auto & scale_map = prog.GetVariableScaling();
 
   std::string print_file_name;
   const auto print_file_it = snopt_options_string.find("Print file");
@@ -783,10 +814,10 @@ void SolveWithGivenOptions(
       print_file_name.c_str(), print_file_name.length(), 0 /* no summary */,
       storage.iw(), storage.leniw(),
       storage.rw(), storage.lenrw());
-  auto guard = MakeGuard([&storage]() {
-      Snopt::snend(
-          storage.iw(), storage.leniw(),
-          storage.rw(), storage.lenrw());
+  ScopeExit guard([&storage]() {
+    Snopt::snend(
+        storage.iw(), storage.leniw(),
+        storage.rw(), storage.lenrw());
   });
 
   int nx = prog.num_vars();
@@ -805,6 +836,10 @@ void SolveWithGivenOptions(
       x[i] = 0.0;
     }
   }
+  // Scale initial guess
+  for (const auto & member : scale_map) {
+    x[member.first] /= member.second;
+  }
 
   // Set up the lower and upper bounds.
   for (auto const& binding : prog.bounding_box_constraints()) {
@@ -818,6 +853,11 @@ void SolveWithGivenOptions(
       xlow[vk_index] = std::max(lb(k), xlow[vk_index]);
       xupp[vk_index] = std::min(ub(k), xupp[vk_index]);
     }
+  }
+  // Scale lower and upper bounds
+  for (const auto & member : scale_map) {
+    xlow[member.first] /= member.second;
+    xupp[member.first] /= member.second;
   }
 
   // For linear complementary condition
@@ -922,6 +962,14 @@ void SolveWithGivenOptions(
   UpdateLinearConstraint(prog, prog.linear_complementarity_constraints(),
                          &linear_constraints_triplets, &Flow, &Fupp,
                          &constraint_index, &linear_constraint_index);
+  // Scale the matrix in linear constraints
+  for (auto & triplet : linear_constraints_triplets) {
+    auto it = scale_map.find(triplet.col());
+    if (it != scale_map.end()) {
+      triplet = Eigen::Triplet<double>(triplet.row(), triplet.col(),
+        triplet.value()*(it->second));
+    }
+  }
 
   int lenA = variable_to_linear_cost_coefficient.size() +
              linear_constraints_triplets.size();
@@ -1017,6 +1065,10 @@ void SolveWithGivenOptions(
   // clang-format on
 
   *x_val = Eigen::Map<Eigen::VectorXd>(x.data(), nx);
+  // Scale solution back
+  for (const auto & member : scale_map) {
+    (*x_val)(member.first) *= member.second;
+  }
   *objective = solver_details->F(0);
   solver_details->info = *snopt_status;
 }
@@ -1090,8 +1142,6 @@ void SnoptSolver::DoSolve(
     result->set_optimal_cost(objective);
   }
 }
-
-bool SnoptSolver::is_thread_safe() { return true; }
 
 bool SnoptSolver::is_bounded_lp_broken() { return true; }
 }  // namespace solvers

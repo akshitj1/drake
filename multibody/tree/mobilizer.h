@@ -12,7 +12,7 @@
 #include "drake/multibody/math/spatial_force.h"
 #include "drake/multibody/math/spatial_velocity.h"
 #include "drake/multibody/tree/frame.h"
-#include "drake/multibody/tree/multibody_tree_element.h"
+#include "drake/multibody/tree/multibody_element.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 
@@ -208,9 +208,9 @@ template<typename T> class BodyNode;
 /// - [Featherstone 2008] Featherstone, R., 2008. Rigid body dynamics
 ///                       algorithms. Springer.
 ///
-/// @tparam T The scalar type. Must be a valid Eigen scalar.
+/// @tparam_default_scalar
 template <typename T>
-class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
+class Mobilizer : public MultibodyElement<Mobilizer, T, MobilizerIndex> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(Mobilizer)
 
@@ -323,7 +323,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// the vector of generalized positions related to this mobilizer to zero.
   /// However, in the general case, setting all generalized coordinates to zero
   /// does not correspond to the _zero_ position and it might even not
-  /// represent a mathematicaly valid one. Consider for instance a quaternion
+  /// represent a mathematically valid one. Consider for instance a quaternion
   /// mobilizer, for which its _zero_ position corresponds to the quaternion
   /// [1, 0, 0, 0].
   ///
@@ -646,7 +646,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// @}
 
  private:
-  // Implementation for MultibodyTreeElement::DoSetTopology().
+  // Implementation for MultibodyElement::DoSetTopology().
   // At MultibodyTree::Finalize() time, each mobilizer retrieves its topology
   // from the parent MultibodyTree.
   void DoSetTopology(const MultibodyTreeTopology& tree_topology) final {

@@ -7,8 +7,8 @@
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/multibody/tree/multibody_element.h"
 #include "drake/multibody/tree/multibody_forces.h"
-#include "drake/multibody/tree/multibody_tree_element.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/systems/framework/context.h"
@@ -25,19 +25,10 @@ template<typename T> class Joint;
 /// MultibodyTree clients can apply forces on actuated joints through their
 /// actuators, see AddInOneForce().
 ///
-/// @tparam T The scalar type. Must be a valid Eigen scalar.
-///
-/// Instantiated templates for the following kinds of T's are provided:
-///
-/// - double
-/// - AutoDiffXd
-/// - symbolic::Expression
-///
-/// They are already available to link against in the containing library.
-/// No other values for T are currently supported.
+/// @tparam_default_scalar
 template <typename T>
 class JointActuator final
-    : public MultibodyTreeElement<JointActuator<T>, JointActuatorIndex> {
+    : public MultibodyElement<JointActuator, T, JointActuatorIndex> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(JointActuator)
 
@@ -166,7 +157,7 @@ class JointActuator final
   std::unique_ptr<JointActuator<symbolic::Expression>> DoCloneToScalar(
       const internal::MultibodyTree<symbolic::Expression>& tree_clone) const;
 
-  // Implementation for MultibodyTreeElement::DoSetTopology().
+  // Implementation for MultibodyElement::DoSetTopology().
   // At MultibodyTree::Finalize() time, each actuator retrieves its topology
   // from the parent MultibodyTree.
   void DoSetTopology(const internal::MultibodyTreeTopology&) final;

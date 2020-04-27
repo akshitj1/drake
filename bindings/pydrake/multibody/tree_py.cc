@@ -11,7 +11,9 @@
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/tree/ball_rpy_joint.h"
 #include "drake/multibody/tree/body.h"
+#include "drake/multibody/tree/door_hinge.h"
 #include "drake/multibody/tree/force_element.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/joint.h"
@@ -22,6 +24,7 @@
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/revolute_joint.h"
+#include "drake/multibody/tree/revolute_spring.h"
 #include "drake/multibody/tree/rigid_body.h"
 #include "drake/multibody/tree/weld_joint.h"
 
@@ -39,16 +42,16 @@ This API using Isometry3 is / will be deprecated soon with the resolution of
 
 namespace {
 
-// Binds `MultibodyTreeElement` methods.
+// Binds `MultibodyElement` methods.
 // N.B. We do this rather than inheritance because this template is more of a
 // mixin than it is a parent class (since it is not used for its dynamic
 // polymorphism).
 // TODO(jamiesnape): Add documentation for bindings generated with this
 // function.
 template <typename PyClass>
-void BindMultibodyTreeElementMixin(PyClass* pcls) {
+void BindMultibodyElementMixin(PyClass* pcls) {
   using Class = typename PyClass::type;
-  // TODO(eric.cousineau): Fix docstring generation for `MultibodyTreeElement`.
+  // TODO(eric.cousineau): Fix docstring generation for `MultibodyElement`.
   auto& cls = *pcls;
   cls  // BR
       .def("index", &Class::index)
@@ -71,6 +74,34 @@ void DoScalarIndependentDefinitions(py::module m) {
   BindTypeSafeIndex<ModelInstanceIndex>(
       m, "ModelInstanceIndex", doc.ModelInstanceIndex.doc);
   m.def("world_index", &world_index, doc.world_index.doc);
+  m.def("world_model_instance", &world_model_instance,
+      doc.world_model_instance.doc);
+  m.def("default_model_instance", &default_model_instance,
+      doc.default_model_instance.doc);
+
+  {
+    using Class = DoorHingeConfig;
+    constexpr auto& cls_doc = doc.DoorHingeConfig;
+    py::class_<Class>(m, "DoorHingeConfig", cls_doc.doc)
+        .def(ParamInit<Class>(), cls_doc.ctor.doc)
+        .def_readwrite("spring_zero_angle_rad", &Class::spring_zero_angle_rad,
+            cls_doc.spring_zero_angle_rad.doc)
+        .def_readwrite("spring_constant", &Class::spring_constant,
+            cls_doc.spring_constant.doc)
+        .def_readwrite("dynamic_friction_torque",
+            &Class::dynamic_friction_torque,
+            cls_doc.dynamic_friction_torque.doc)
+        .def_readwrite("static_friction_torque", &Class::static_friction_torque,
+            cls_doc.static_friction_torque.doc)
+        .def_readwrite("viscous_friction", &Class::viscous_friction,
+            cls_doc.viscous_friction.doc)
+        .def_readwrite(
+            "catch_width", &Class::catch_width, cls_doc.catch_width.doc)
+        .def_readwrite(
+            "catch_torque", &Class::catch_torque, cls_doc.catch_torque.doc)
+        .def_readwrite("motion_threshold", &Class::motion_threshold,
+            cls_doc.motion_threshold.doc);
+  }
 
   {
     using Enum = JacobianWrtVariable;
@@ -101,7 +132,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
     constexpr auto& cls_doc = doc.Frame;
     auto cls =
         DefineTemplateClassWithDefault<Class>(m, "Frame", param, cls_doc.doc);
-    BindMultibodyTreeElementMixin(&cls);
+    BindMultibodyElementMixin(&cls);
     cls  // BR
         .def("name", &Class::name, cls_doc.name.doc)
         .def("body", &Class::body, py_reference_internal, cls_doc.body.doc)
@@ -145,11 +176,12 @@ void DoScalarDependentDefinitions(py::module m, T) {
     constexpr auto& cls_doc = doc.Body;
     auto cls =
         DefineTemplateClassWithDefault<Class>(m, "Body", param, cls_doc.doc);
-    BindMultibodyTreeElementMixin(&cls);
+    BindMultibodyElementMixin(&cls);
     cls  // BR
         .def("name", &Class::name, cls_doc.name.doc)
         .def("body_frame", &Class::body_frame, py_reference_internal,
             cls_doc.body_frame.doc)
+        .def("is_floating", &Class::is_floating, cls_doc.is_floating.doc)
         .def("GetForceInWorld", &Class::GetForceInWorld, py::arg("context"),
             py::arg("forces"), cls_doc.GetForceInWorld.doc)
         .def("AddInForceInWorld", &Class::AddInForceInWorld, py::arg("context"),
@@ -180,7 +212,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
     constexpr auto& cls_doc = doc.Joint;
     auto cls =
         DefineTemplateClassWithDefault<Class>(m, "Joint", param, cls_doc.doc);
-    BindMultibodyTreeElementMixin(&cls);
+    BindMultibodyElementMixin(&cls);
     cls  // BR
         .def("name", &Class::name, cls_doc.name.doc)
         .def("parent_body", &Class::parent_body, py_reference_internal,
@@ -210,6 +242,31 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.acceleration_lower_limits.doc)
         .def("acceleration_upper_limits", &Class::acceleration_upper_limits,
             cls_doc.acceleration_upper_limits.doc);
+  }
+
+  // BallRpyJoint
+  {
+    using Class = BallRpyJoint<T>;
+    constexpr auto& cls_doc = doc.BallRpyJoint;
+    auto cls = DefineTemplateClassWithDefault<Class, Joint<T>>(
+        m, "BallRpyJoint", param, cls_doc.doc);
+    cls  // BR
+        .def(
+            py::init<const string&, const Frame<T>&, const Frame<T>&, double>(),
+            py::arg("name"), py::arg("frame_on_parent"),
+            py::arg("frame_on_child"), py::arg("damping") = 0, cls_doc.ctor.doc)
+        .def("get_angles", &Class::get_angles, py::arg("context"),
+            cls_doc.get_angles.doc)
+        .def("set_angles", &Class::set_angles, py::arg("context"),
+            py::arg("angles"), cls_doc.set_angles.doc)
+        .def("set_random_angles_distribution",
+            &Class::set_random_angles_distribution, py::arg("angles"),
+            cls_doc.set_random_angles_distribution.doc)
+        .def("get_angular_velocity", &Class::get_angular_velocity,
+            py::arg("context"), cls_doc.get_angular_velocity.doc)
+        .def("set_angular_velocity", &Class::set_angular_velocity,
+            py::arg("context"), py::arg("w_FM"),
+            cls_doc.set_angular_velocity.doc);
   }
 
   // PrismaticJoint
@@ -292,7 +349,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
     constexpr auto& cls_doc = doc.JointActuator;
     auto cls = DefineTemplateClassWithDefault<Class>(
         m, "JointActuator", param, cls_doc.doc);
-    BindMultibodyTreeElementMixin(&cls);
+    BindMultibodyElementMixin(&cls);
     cls  // BR
         .def("name", &Class::name, cls_doc.name.doc)
         .def("joint", &Class::joint, py_reference_internal, cls_doc.joint.doc);
@@ -304,7 +361,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
     constexpr auto& cls_doc = doc.ForceElement;
     auto cls = DefineTemplateClassWithDefault<Class>(
         m, "ForceElement", param, cls_doc.doc);
-    BindMultibodyTreeElementMixin(&cls);
+    BindMultibodyElementMixin(&cls);
   }
 
   {
@@ -317,7 +374,28 @@ void DoScalarDependentDefinitions(py::module m, T) {
                  const Vector3<double>&, double, double, double>(),
             py::arg("bodyA"), py::arg("p_AP"), py::arg("bodyB"),
             py::arg("p_BQ"), py::arg("free_length"), py::arg("stiffness"),
-            py::arg("damping"), cls_doc.ctor.doc);
+            py::arg("damping"), cls_doc.ctor.doc)
+        .def("bodyA", &Class::bodyA, py_reference_internal, cls_doc.bodyA.doc)
+        .def("bodyB", &Class::bodyB, py_reference_internal, cls_doc.bodyB.doc)
+        .def("p_AP", &Class::p_AP, cls_doc.p_AP.doc)
+        .def("p_BQ", &Class::p_BQ, cls_doc.p_BQ.doc)
+        .def("free_length", &Class::free_length, cls_doc.free_length.doc)
+        .def("stiffness", &Class::stiffness, cls_doc.stiffness.doc)
+        .def("damping", &Class::damping, cls_doc.damping.doc);
+  }
+
+  {
+    using Class = RevoluteSpring<T>;
+    constexpr auto& cls_doc = doc.RevoluteSpring;
+    auto cls = DefineTemplateClassWithDefault<Class, ForceElement<T>>(
+        m, "RevoluteSpring", param, cls_doc.doc);
+    cls  // BR
+        .def(py::init<const RevoluteJoint<T>&, double, double>(),
+            py::arg("joint"), py::arg("nominal_angle"), py::arg("stiffness"),
+            cls_doc.ctor.doc)
+        .def("joint", &Class::joint, py_reference_internal, cls_doc.joint.doc)
+        .def("nominal_angle", &Class::nominal_angle, cls_doc.nominal_angle.doc)
+        .def("stiffness", &Class::stiffness, cls_doc.stiffness.doc);
   }
 
   {
@@ -332,6 +410,24 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.gravity_vector.doc)
         .def("set_gravity_vector", &Class::set_gravity_vector,
             cls_doc.set_gravity_vector.doc);
+  }
+
+  {
+    using Class = DoorHinge<T>;
+    constexpr auto& cls_doc = doc.DoorHinge;
+    auto cls = DefineTemplateClassWithDefault<Class, ForceElement<T>>(
+        m, "DoorHinge", param, cls_doc.doc);
+    cls.def(py::init<const RevoluteJoint<T>&, const DoorHingeConfig&>(),
+           py::arg("joint"), py::arg("config"), cls_doc.ctor.doc)
+        .def("joint", &Class::joint, py_reference_internal, cls_doc.joint.doc)
+        .def(
+            "config", &Class::config, py_reference_internal, cls_doc.config.doc)
+        .def("CalcHingeFrictionalTorque", &Class::CalcHingeFrictionalTorque,
+            py::arg("angular_rate"), cls_doc.CalcHingeFrictionalTorque.doc)
+        .def("CalcHingeSpringTorque", &Class::CalcHingeSpringTorque,
+            py::arg("angle"), cls_doc.CalcHingeSpringTorque.doc)
+        .def("CalcHingeTorque", &Class::CalcHingeTorque, py::arg("angle"),
+            py::arg("angular_rate"), cls_doc.CalcHingeTorque.doc);
   }
 
   // MultibodyForces

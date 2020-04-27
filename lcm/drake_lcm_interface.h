@@ -16,7 +16,15 @@ namespace drake {
 namespace lcm {
 
 // Declared later in this file.
+class DrakeLcmInterface;
 class DrakeSubscriptionInterface;
+
+namespace internal {
+// Used by the drake::lcm::Subscribe() free function to report errors.
+void OnHandleSubscriptionsError(
+    DrakeLcmInterface* lcm,
+    const std::string& error_message);
+}  // namespace internal
 
 /**
  * A pure virtual interface that enables LCM to be mocked.
@@ -39,6 +47,9 @@ class DrakeLcmInterface {
    * - `message_buffer` A pointer to the byte vector that is the serial
    *   representation of the LCM message.
    * - `message_size` The size of `message_buffer`.
+   *
+   * A callback should never throw an exception, because it is indirectly
+   * called from C functions.
    */
   using HandlerFunction = std::function<void(const void*, int)>;
 
@@ -69,6 +80,12 @@ class DrakeLcmInterface {
    * Subscribes to an LCM channel without automatic message decoding. The
    * handler will be invoked when a message arrives on channel @p channel.
    *
+   * The handler should never throw an exception, because it is indirectly
+   * called from C functions.
+   *
+   * NOTE: Unlike upstream LCM, DrakeLcm does not support regexes for the
+   * `channel` argument.
+   *
    * @param channel The channel to subscribe to.
    * Must not be the empty string.
    *
@@ -91,6 +108,13 @@ class DrakeLcmInterface {
 
  protected:
   DrakeLcmInterface();
+
+ private:
+  // Allow our internal function to call the virtual function.
+  friend void internal::OnHandleSubscriptionsError(
+      DrakeLcmInterface* /* lcm */, const std::string& /* error_message */);
+  // A virtual function to be called during HandleSubscriptions processing.
+  virtual void OnHandleSubscriptionsError(const std::string& error_message) = 0;
 };
 
 /**
@@ -204,7 +228,10 @@ std::shared_ptr<DrakeSubscriptionInterface> Subscribe(
     } else if (on_error) {
       on_error();
     } else {
-      throw std::runtime_error("Error decoding message on " + channel);
+      // Register the error on the DrakeLcmInterface that owns us.  It will
+      // throw once it's safe to do so (once C code is no longer on the stack).
+      internal::OnHandleSubscriptionsError(
+          lcm, "Error decoding message on " + channel);
     }
   });
   return result;

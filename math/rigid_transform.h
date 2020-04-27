@@ -5,7 +5,6 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_bool.h"
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/never_destroyed.h"
 #include "drake/math/rotation_matrix.h"
@@ -64,7 +63,7 @@ namespace math {
 /// @authors Paul Mitiguy (2018) Original author.
 /// @authors Drake team (see https://drake.mit.edu/credits).
 ///
-/// @tparam T The underlying scalar type. Must be a valid Eigen scalar.
+/// @tparam_default_scalar
 template <typename T>
 class RigidTransform {
  public:
@@ -246,21 +245,6 @@ class RigidTransform {
                              "not an Eigen expression that can resolve to"
                              "a Vector3 or 3x4 matrix or 4x4 matrix.");
     }
-  }
-
-  /// Makes a %RigidTransform from a 4x4 matrix with the structure shown in
-  /// MakeAsMatrix4().
-  /// @param[in] pose 4x4 matrix that contains an allegedly valid 3x3 rotation
-  /// matrix `R_AB` and also a 3x1 position vector `p_AoBo_A` (the position
-  /// vector from frame A's origin to frame B's origin, expressed in frame A).
-  /// @throws std::logic_error in debug builds if the `R_AB` part of `pose` is
-  /// not a proper orthonormal 3x3 rotation matrix or if `pose` is not
-  /// homogeneous, i.e., the final row is not [0, 0, 0, 1].
-  /// @note No attempt is made to orthogonalize the 3x3 rotation matrix part of
-  /// `pose`.  As needed, use RotationMatrix::ProjectToRotationMatrix().
-  DRAKE_DEPRECATED("2019-11-15", "Use RigidTransform(pose) constructor.")
-  static RigidTransform<T> FromMatrix4(const Matrix4<T>& matrix) {
-    return RigidTransform<T>(matrix);
   }
 
   /// Sets `this` %RigidTransform from a RotationMatrix and a position vector.
@@ -446,7 +430,7 @@ class RigidTransform {
   // They are only provided to support backwards compatibility with Isometry3
   // as we migrate Drake's codebase to use RigidTransform. New uses of
   // Isometry3 are discouraged. These methods will remain intact (though
-  // possibly marked as deprecated) until at least 2019-12-01. N.B. Keep the
+  // possibly marked as deprecated) until at least 2020-07-01. N.B. Keep the
   // deprecation date here in sync with the deprecation comment inside
   // drake/bindings/pydrake/math_py.cc.
   operator Isometry3<T>() const { return GetAsIsometry3(); }

@@ -167,13 +167,14 @@ void PackageMap::PopulateUpstreamToDrake(const string& model_file) {
         "The file type '{}' is not supported for '{}'",
         extension, model_file));
   }
-  const string model_dir = filesystem::path(model_file).parent_path();
+  const string model_dir = filesystem::path(model_file).parent_path().string();
 
-  // Bail out if the model file is not part of Drake.
+  // Bail out if we can't determine the drake root.
   const std::optional<string> maybe_drake_path = MaybeGetDrakePath();
   if (!maybe_drake_path) {
     return;
   }
+  // Bail out if the model file is not part of Drake.
   const string& drake_path = *maybe_drake_path;
   auto iter = std::mismatch(drake_path.begin(), drake_path.end(),
                             model_dir.begin());

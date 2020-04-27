@@ -50,7 +50,7 @@ def python_lint(
         existing_rules: The value of native.existing_result().values(), in case
             it has already been computed.  When not supplied, the value will be
             internally (re-)computed.
-        ignore: List of errors to ingore, in addition to
+        ignore: List of errors to ignore, in addition to
             PYTHON_LINT_IGNORE_DEFAULT (as strings, with the 'E' or 'W').
         exclude: List of labels to exclude from linting, e.g., [:foo.py].
         extra_srcs: Source files that are not discoverable via rules.
@@ -58,6 +58,7 @@ def python_lint(
     Example:
         BUILD:
             load("//tools/lint:python_lint.bzl", "python_lint")
+            load("//tools/skylark:py.bzl", "py_library")
 
             py_library(
                 name = "foo",

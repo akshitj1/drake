@@ -10,6 +10,7 @@
 #include <vtkAutoInit.h>
 #include <vtkCommand.h>
 #include <vtkImageExport.h>
+#include <vtkLight.h>
 #include <vtkNew.h>
 #include <vtkPolyDataAlgorithm.h>
 #include <vtkRenderWindow.h>
@@ -129,6 +130,7 @@ class RenderEngineVtk final : public RenderEngine,
   void ImplementGeometry(const HalfSpace& half_space, void* user_data) final;
   void ImplementGeometry(const Box& box, void* user_data) final;
   void ImplementGeometry(const Capsule& capsule, void* user_data) final;
+  void ImplementGeometry(const Ellipsoid& ellipsoid, void* user_data) final;
   void ImplementGeometry(const Mesh& mesh, void* user_data) final;
   void ImplementGeometry(const Convex& convex, void* user_data) final;
   //@}
@@ -142,7 +144,6 @@ class RenderEngineVtk final : public RenderEngine,
   const Eigen::Vector4d& default_diffuse() const { return default_diffuse_; }
 
   using RenderEngine::default_render_label;
-
   //@}
 
  private:
@@ -197,10 +198,14 @@ class RenderEngineVtk final : public RenderEngine,
   void UpdateWindow(const DepthCameraProperties& camera,
                     const RenderingPipeline* p) const;
 
+  void SetDefaultLightPosition(const Vector3<double>& X_DL);
+
   // Three pipelines: rgb, depth, and label.
   static constexpr int kNumPipelines = 3;
 
   std::array<std::unique_ptr<RenderingPipeline>, kNumPipelines> pipelines_;
+
+  vtkNew<vtkLight> light_;
 
   // By design, all of the geometry is shared across clones of the render
   // engine. This is predicated upon the idea that the geometry is *not*

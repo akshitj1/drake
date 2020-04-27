@@ -30,6 +30,30 @@ TEST_F(KukaIiwaModelTests, FramesKinematics) {
       X_WH.GetAsMatrix34(), X_WH_expected.GetAsMatrix34(),
       kTolerance, MatrixCompareType::relative));
 
+  // Alternative, we can get the pose X_WE using the plant's output port for
+  // poses.
+  const auto& X_WB_all =
+      plant_->get_body_poses_output_port()
+          .Eval<std::vector<RigidTransform<double>>>(*context_);
+  ASSERT_EQ(X_WB_all.size(), plant_->num_bodies());
+  const RigidTransform<double>& X_WE_from_port =
+      X_WB_all[end_effector_link_->index()];
+  EXPECT_TRUE(CompareMatrices(
+      X_WE.GetAsMatrix34(), X_WE_from_port.GetAsMatrix34(),
+      kTolerance, MatrixCompareType::relative));
+
+  // Verify the invariance X_WB_all[0] = RigidTransform<double>::Identity().
+  EXPECT_TRUE(
+      CompareMatrices(X_WB_all[0].GetAsMatrix34(),
+                      RigidTransform<double>::Identity().GetAsMatrix34(),
+                      kTolerance, MatrixCompareType::relative));
+
+  const RotationMatrix<double> R_WH =
+      frame_H_->CalcRotationMatrixInWorld(*context_);
+  const RotationMatrix<double> R_WH_expected = X_WH_expected.rotation();
+  EXPECT_TRUE(CompareMatrices(R_WH.matrix(), R_WH_expected.matrix(), kTolerance,
+                              MatrixCompareType::relative));
+
   const Body<double>& link3 = plant_->GetBodyByName("iiwa_link_3");
   const RigidTransform<double> X_HL3 =
       link3.body_frame().CalcPose(*context_, *frame_H_);
@@ -39,6 +63,14 @@ TEST_F(KukaIiwaModelTests, FramesKinematics) {
   EXPECT_TRUE(CompareMatrices(
       X_HL3.GetAsMatrix34(), X_HL3_expected.GetAsMatrix34(),
       kTolerance, MatrixCompareType::relative));
+
+  const RotationMatrix<double> R_HL3 =
+      link3.body_frame().CalcRotationMatrix(*context_, *frame_H_);
+  const RotationMatrix<double> R_WL3 =
+      link3.body_frame().CalcRotationMatrixInWorld(*context_);
+  const RotationMatrix<double> R_HL3_expected = R_WH.inverse() * R_WL3;
+  EXPECT_TRUE(CompareMatrices(R_HL3.matrix(), R_HL3_expected.matrix(),
+                              kTolerance, MatrixCompareType::relative));
 
   const SpatialVelocity<double> V_WE =
       end_effector_link_->EvalSpatialVelocityInWorld(*context_);

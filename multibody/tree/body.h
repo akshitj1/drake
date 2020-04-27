@@ -8,8 +8,8 @@
 #include "drake/common/drake_copyable.h"
 #include "drake/common/unused.h"
 #include "drake/multibody/tree/frame.h"
+#include "drake/multibody/tree/multibody_element.h"
 #include "drake/multibody/tree/multibody_forces.h"
-#include "drake/multibody/tree/multibody_tree_element.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/multibody/tree/spatial_inertia.h"
@@ -61,7 +61,7 @@ template<typename T> class Body;
 /// define other frames on the body and to attach other multibody elements
 /// to it.
 ///
-/// @tparam T The scalar type. Must be a valid Eigen scalar.
+/// @tparam_default_scalar
 template <typename T>
 class BodyFrame final : public Frame<T> {
  public:
@@ -72,19 +72,39 @@ class BodyFrame final : public Frame<T> {
     return math::RigidTransform<T>::Identity();
   }
 
+  math::RotationMatrix<T> CalcRotationMatrixInBodyFrame(
+      const systems::Context<T>&) const override {
+    return math::RotationMatrix<T>::Identity();
+  }
+
   math::RigidTransform<T> CalcOffsetPoseInBody(
       const systems::Context<T>&,
       const math::RigidTransform<T>& X_FQ) const override {
     return X_FQ;
   }
 
+  math::RotationMatrix<T> CalcOffsetRotationMatrixInBody(
+      const systems::Context<T>&,
+      const math::RotationMatrix<T>& R_FQ) const override {
+    return R_FQ;
+  }
+
   math::RigidTransform<T> GetFixedPoseInBodyFrame() const override {
     return math::RigidTransform<T>::Identity();
+  }
+
+  math::RotationMatrix<T> GetFixedRotationMatrixInBodyFrame() const override {
+    return math::RotationMatrix<T>::Identity();
   }
 
   math::RigidTransform<T> GetFixedOffsetPoseInBody(
       const math::RigidTransform<T>& X_FQ) const override {
     return X_FQ;
+  }
+
+  math::RotationMatrix<T> GetFixedRotationMatrixInBody(
+      const math::RotationMatrix<T>& R_FQ) const override {
+    return R_FQ;
   }
 
  protected:
@@ -152,15 +172,15 @@ class BodyAttorney {
 /// does it make any assumptions about the underlying physical model or
 /// approximation.
 /// As an element or component of a MultibodyTree, a body is a
-/// MultibodyTreeElement, and therefore it has a unique index of type BodyIndex
+/// MultibodyElement, and therefore it has a unique index of type BodyIndex
 /// within the multibody tree it belongs to.
 ///
 /// A %Body contains a unique BodyFrame; see BodyFrame class documentation for
 /// more information.
 ///
-/// @tparam T The scalar type. Must be a valid Eigen scalar.
+/// @tparam_default_scalar
 template <typename T>
-class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
+class Body : public MultibodyElement<Body, T, BodyIndex> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(Body)
 
@@ -168,7 +188,7 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
   /// with a given `default_mass` and a BodyFrame associated with it.
   Body(const std::string& name, ModelInstanceIndex model_instance,
        double default_mass)
-      : MultibodyTreeElement<Body<T>, BodyIndex>(model_instance),
+      : MultibodyElement<Body, T, BodyIndex>(model_instance),
         name_(name),
         body_frame_(*this), default_mass_(default_mass) {}
 
@@ -327,8 +347,8 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
     DRAKE_THROW_UNLESS(forces != nullptr);
     DRAKE_THROW_UNLESS(
         forces->CheckHasRightSizeForModel(this->get_parent_tree()));
-    const math::RigidTransform<T> X_WE = frame_E.CalcPoseInWorld(context);
-    const math::RotationMatrix<T>& R_WE = X_WE.rotation();
+    const math::RotationMatrix<T> R_WE =
+        frame_E.CalcRotationMatrixInWorld(context);
     const Vector3<T> p_PB_W = -(R_WE * p_BP_E);
     const SpatialForce<T> F_Bo_W = (R_WE * F_Bp_E).Shift(p_PB_W);
     AddInForceInWorld(context, F_Bo_W, forces);
@@ -393,7 +413,7 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
     }
   }
 
-  // Implementation for MultibodyTreeElement::DoSetTopology().
+  // Implementation for MultibodyElement::DoSetTopology().
   // At MultibodyTree::Finalize() time, each body retrieves its topology
   // from the parent MultibodyTree.
   void DoSetTopology(

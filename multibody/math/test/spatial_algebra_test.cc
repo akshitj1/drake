@@ -68,6 +68,14 @@ class SpatialQuantityTest : public ::testing::Test {
   // A spatial quantity related to the above rotational and translational
   // components.
   SpatialQuantityType V_{w_, v_};
+
+  // Two non-zero arbitrary spatial vector.
+  const Vector3<ScalarType> r1_{1.0, 2.0, 3.0};
+  const Vector3<ScalarType> t1_{4.0, 5.0, 6.0};
+  const SpatialQuantityType V1_{r1_, t1_};
+  const Vector3<ScalarType> r2_{-1.0, 1.5, -0.5};
+  const Vector3<ScalarType> t2_{5.0, 7.0, 8.0};
+  const SpatialQuantityType V2_{r2_, t2_};
 };
 
 // Create a list of SpatialVector types to be tested.
@@ -279,6 +287,17 @@ TYPED_TEST(SpatialQuantityTest, ShiftOperatorIntoStream) {
   EXPECT_EQ(expected_string, stream.str());
 }
 
+TYPED_TEST(SpatialQuantityTest, MultiplicationAssignmentOperator) {
+  typedef typename TestFixture::SpatialQuantityType SpatialQuantity;
+  typedef typename TestFixture::ScalarType T;
+  const T scalar = 3.0;
+  SpatialQuantity V(this->V1_);
+  V *= scalar;
+  // Verify the result using Eigen operations.
+  EXPECT_EQ(V.rotational(), Vector3<T>(this->r1_ * scalar));
+  EXPECT_EQ(V.translational(), Vector3<T>(this->t1_ * scalar));
+}
+
 // Test the multiplication of a spatial quantity by a scalar.
 TYPED_TEST(SpatialQuantityTest, MulitplicationByAScalar) {
   typedef typename TestFixture::SpatialQuantityType SpatialQuantity;
@@ -316,6 +335,44 @@ TYPED_TEST(SpatialQuantityTest, UnaryMinusOperator) {
   // Verify the result using Eigen operations.
   EXPECT_EQ(V.rotational(), -Vminus.rotational());
   EXPECT_EQ(V.translational(), -Vminus.translational());
+}
+
+TYPED_TEST(SpatialQuantityTest, AdditionAssignmentOperator) {
+  typedef typename TestFixture::SpatialQuantityType SpatialQuantity;
+  typedef typename TestFixture::ScalarType T;
+  SpatialQuantity V(this->V1_);
+  V += this->V2_;
+  // Verify the result using Eigen operations.
+  EXPECT_EQ(V.rotational(), Vector3<T>(this->r1_ + this->r2_));
+  EXPECT_EQ(V.translational(), Vector3<T>(this->t1_ + this->t2_));
+}
+
+TYPED_TEST(SpatialQuantityTest, AdditionOperator) {
+  typedef typename TestFixture::SpatialQuantityType SpatialQuantity;
+  typedef typename TestFixture::ScalarType T;
+  const SpatialQuantity V = this->V1_ + this->V2_;
+  // Verify the result using Eigen operations.
+  EXPECT_EQ(V.rotational(), Vector3<T>(this->r1_ + this->r2_));
+  EXPECT_EQ(V.translational(), Vector3<T>(this->t1_ + this->t2_));
+}
+
+TYPED_TEST(SpatialQuantityTest, SubtractionAssignmentOperator) {
+  typedef typename TestFixture::SpatialQuantityType SpatialQuantity;
+  typedef typename TestFixture::ScalarType T;
+  SpatialQuantity V(this->V1_);
+  V -= this->V2_;
+  // Verify the result using Eigen operations.
+  EXPECT_EQ(V.rotational(), Vector3<T>(this->r1_ - this->r2_));
+  EXPECT_EQ(V.translational(), Vector3<T>(this->t1_ - this->t2_));
+}
+
+TYPED_TEST(SpatialQuantityTest, SubtractionOperator) {
+  typedef typename TestFixture::SpatialQuantityType SpatialQuantity;
+  typedef typename TestFixture::ScalarType T;
+  const SpatialQuantity V = this->V1_ - this->V2_;
+  // Verify the result using Eigen operations.
+  EXPECT_EQ(V.rotational(), Vector3<T>(this->r1_ - this->r2_));
+  EXPECT_EQ(V.translational(), Vector3<T>(this->t1_ - this->t2_));
 }
 
 // Re-express in another frame. Given a spatial vector V_F expressed in a frame
@@ -527,6 +584,19 @@ TYPED_TEST(ElementsInF6Test, ShiftOperation) {
   // Verify the result.
   SpatialQuantity expected_F_Bo_E(Vector3<T>(2.0, -1.0, -3.0), f_Ao_E);
   EXPECT_TRUE(F_Bo_E.IsApprox(expected_F_Bo_E));
+
+  // We perform the shift operation on a Matrix storing a spatial force in each
+  // column.
+  constexpr int num_forces = 3;
+  const Matrix6X<T> Fmatrix_Ao_E =
+      F_Ao_E.get_coeffs().rowwise().replicate(num_forces);
+  Eigen::Matrix<T, 6, num_forces> Fmatrix_Bo_E;
+  // TODO(amcastro-tri): Implement this version of Shift() for SpatialMomentum.
+  SpatialForce<T>::Shift(Fmatrix_Ao_E, p_AB_E, &Fmatrix_Bo_E);
+  for (int j = 0; j < num_forces; ++j) {
+    SpatialQuantity Fj_Bo_E(Fmatrix_Bo_E.col(j));
+    EXPECT_TRUE(Fj_Bo_E.IsApprox(expected_F_Bo_E));
+  }
 }
 
 // Tests operator+().

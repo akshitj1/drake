@@ -3,7 +3,6 @@
 #include <memory>
 
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_nodiscard.h"
 #include "drake/common/reset_on_copy.h"
 #include "drake/geometry/proximity/surface_mesh.h"
 
@@ -14,9 +13,9 @@ namespace geometry {
   on a mesh M. It can evaluate the field value at any location on any element
   of the mesh.
 
-  @tparam FieldValue  a valid Eigen scalar or vector of valid Eigen scalars for
+  @tparam FieldValue  a valid Eigen scalar or Vector of Eigen scalar for
                      the field value.
-  @tparam MeshType   the type of the mesh: surface mesh or volume mesh.
+  @tparam MeshType   the type of the mesh: SurfaceMesh or VolumeMesh.
 */
 template <class FieldValue, class MeshType>
 // TODO(DamrongGuoy): Consider making the fact that MeshType is templated on
@@ -54,7 +53,7 @@ class MeshField {
    does not own the mesh. In fact, several %MeshField objects can use the same
    mesh.
    */
-  DRAKE_NODISCARD std::unique_ptr<MeshField> CloneAndSetMesh(
+  [[nodiscard]] std::unique_ptr<MeshField> CloneAndSetMesh(
       const MeshType* new_mesh) const {
     DRAKE_DEMAND(new_mesh != nullptr);
     DRAKE_DEMAND(new_mesh->num_vertices() == mesh_->num_vertices());
@@ -74,13 +73,13 @@ class MeshField {
     DRAKE_DEMAND(mesh_ != nullptr);
   }
 
-  DRAKE_NODISCARD std::unique_ptr<MeshField> CloneWithNullMesh() const {
+  [[nodiscard]] std::unique_ptr<MeshField> CloneWithNullMesh() const {
     return DoCloneWithNullMesh();
   }
   /** Derived classes must implement this method to clone themselves given
    that the pointer to the mesh is null.
    */
-  DRAKE_NODISCARD virtual std::unique_ptr<MeshField> DoCloneWithNullMesh()
+  [[nodiscard]] virtual std::unique_ptr<MeshField> DoCloneWithNullMesh()
       const = 0;
 
  private:
@@ -96,6 +95,9 @@ class MeshField {
  */
 template <typename FieldValue, typename T>
 using SurfaceMeshField = MeshField<FieldValue, SurfaceMesh<T>>;
+
+extern template class MeshField<double, SurfaceMesh<double>>;
+extern template class MeshField<AutoDiffXd, SurfaceMesh<AutoDiffXd>>;
 
 }  // namespace geometry
 }  // namespace drake

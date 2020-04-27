@@ -19,6 +19,7 @@
 #include "drake/multibody/plant/externally_applied_spatial_force.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/plant/point_pair_contact_info.h"
+#include "drake/multibody/plant/propeller.h"
 #include "drake/multibody/tree/spatial_inertia.h"
 
 PYBIND11_MAKE_OPAQUE(
@@ -108,29 +109,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
         m, "ContactResults", param, cls_doc.doc);
     cls  // BR
         .def(py::init<>(), cls_doc.ctor.doc)
-        .def("num_contacts",
-            [](Class* self) {
-              WarnDeprecated(
-                  "Deprecated and will be removed on or around "
-                  "2019-12-01. Use num_point_pair_contacts() instead.");
-              return self->num_point_pair_contacts();
-            },
-            (std::string("(Deprecated.) ") +
-                cls_doc.num_point_pair_contacts.doc)
-                .c_str())
         .def("num_point_pair_contacts", &Class::num_point_pair_contacts,
             cls_doc.num_point_pair_contacts.doc)
-        .def("contact_info",
-            [](Class* self, int i) {
-              WarnDeprecated(
-                  "Deprecated and will be removed on or around "
-                  "2019-12-01. Use point_pair_contact_info() instead.");
-              return self->point_pair_contact_info(i);
-            },
-            py::arg("i"),
-            (std::string("(Deprecated. )") +
-                cls_doc.point_pair_contact_info.doc)
-                .c_str())
         .def("point_pair_contact_info", &Class::point_pair_contact_info,
             py::arg("i"), cls_doc.point_pair_contact_info.doc);
     AddValueInstantiation<Class>(m);
@@ -150,6 +130,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("dynamic_friction", &Class::dynamic_friction,
             cls_doc.dynamic_friction.doc);
 
+    AddValueInstantiation<CoulombFriction<T>>(m);
+
     m.def("CalcContactFrictionFromSurfaceProperties",
         [](const multibody::CoulombFriction<T>& surface_properties1,
             const multibody::CoulombFriction<T>& surface_properties2) {
@@ -167,11 +149,18 @@ void DoScalarDependentDefinitions(py::module m, T) {
         m, "MultibodyPlant", param, cls_doc.doc);
     // N.B. These are defined as they appear in the class declaration.
     // Forwarded methods from `MultibodyTree`.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    cls.def(py_init_deprecated<Class>(cls_doc.ctor.doc_deprecated),
+        cls_doc.ctor.doc_deprecated);
+#pragma GCC diagnostic pop
     cls  // BR
-        .def(py::init<double>(), py::arg("time_step") = 0.)
+        .def(py::init<double>(), py::arg("time_step"), cls_doc.ctor.doc)
         .def("num_bodies", &Class::num_bodies, cls_doc.num_bodies.doc)
         .def("num_joints", &Class::num_joints, cls_doc.num_joints.doc)
         .def("num_actuators", &Class::num_actuators, cls_doc.num_actuators.doc)
+        .def("num_force_elements", &Class::num_force_elements,
+            cls_doc.num_force_elements.doc)
         .def("num_model_instances", &Class::num_model_instances,
             cls_doc.num_model_instances.doc)
         .def("num_positions",
@@ -187,12 +176,21 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("num_velocities",
             overload_cast_explicit<int, ModelInstanceIndex>(
                 &Class::num_velocities),
-            cls_doc.num_velocities.doc_1args)
-        .def("num_multibody_states", &Class::num_multibody_states,
-            cls_doc.num_multibody_states.doc)
+            py::arg("model_instance"), cls_doc.num_velocities.doc_1args)
+        .def("num_multibody_states",
+            overload_cast_explicit<int>(&Class::num_multibody_states),
+            cls_doc.num_multibody_states.doc_0args)
+        .def("num_multibody_states",
+            overload_cast_explicit<int, ModelInstanceIndex>(
+                &Class::num_multibody_states),
+            py::arg("model_instance"), cls_doc.num_multibody_states.doc_1args)
         .def("num_actuated_dofs",
             overload_cast_explicit<int>(&Class::num_actuated_dofs),
-            cls_doc.num_actuated_dofs.doc_0args);
+            cls_doc.num_actuated_dofs.doc_0args)
+        .def("num_actuated_dofs",
+            overload_cast_explicit<int, ModelInstanceIndex>(
+                &Class::num_actuated_dofs),
+            py::arg("model_instance"), cls_doc.num_actuated_dofs.doc_1args);
     // Construction.
     cls  // BR
         .def("AddJoint",
@@ -200,6 +198,10 @@ void DoScalarDependentDefinitions(py::module m, T) {
               return self->AddJoint(std::move(joint));
             },
             py::arg("joint"), py_reference_internal, cls_doc.AddJoint.doc_1args)
+        .def("AddJointActuator", &Class::AddJointActuator,
+            py_reference_internal, py::arg("name"), py::arg("joint"),
+            py::arg("effort_limit") = std::numeric_limits<double>::infinity(),
+            cls_doc.AddJointActuator.doc)
         .def("AddFrame",
             [](Class * self, std::unique_ptr<Frame<T>> frame) -> auto& {
               return self->AddFrame(std::move(frame));
@@ -254,28 +256,10 @@ void DoScalarDependentDefinitions(py::module m, T) {
               return p_AQi;
             },
             py::arg("context"), py::arg("frame_B"), py::arg("p_BQi"),
-            py::arg("frame_A"), cls_doc.CalcPointsPositions.doc);
-    // Bind deprecated overload.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    cls.def("CalcFrameGeometricJacobianExpressedInWorld",
-        WrapDeprecated(
-            cls_doc.CalcFrameGeometricJacobianExpressedInWorld.doc_deprecated,
-            [](const Class* self, const Context<T>& context,
-                const Frame<T>& frame_B, const Vector3<T>& p_BoFo_B) {
-              MatrixX<T> Jv_WF(6, self->num_velocities());
-              self->CalcFrameGeometricJacobianExpressedInWorld(
-                  context, frame_B, p_BoFo_B, &Jv_WF);
-              return Jv_WF;
-            }),
-        py::arg("context"), py::arg("frame_B"),
-        py::arg("p_BoFo_B") = Vector3<T>::Zero().eval(),
-        cls_doc.CalcFrameGeometricJacobianExpressedInWorld.doc_deprecated);
-#pragma GCC diagnostic pop
-    cls  // BR
-         // TODO(eric.cousineau): Include `CalcInverseDynamics` once there is an
-         // overload that (a) services MBP directly and (b) uses body
-         // association that is less awkward than implicit BodyNodeIndex.
+            py::arg("frame_A"), cls_doc.CalcPointsPositions.doc)
+        // TODO(eric.cousineau): Include `CalcInverseDynamics` once there is an
+        // overload that (a) services MBP directly and (b) uses body
+        // association that is less awkward than implicit BodyNodeIndex.
         .def("SetFreeBodyPose",
             overload_cast_explicit<void, Context<T>*, const Body<T>&,
                 const RigidTransform<T>&>(&Class::SetFreeBodyPose),
@@ -437,10 +421,6 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("CalcForceElementsContribution",
             &Class::CalcForceElementsContribution, py::arg("context"),
             py::arg("forces"), cls_doc.CalcForceElementsContribution.doc)
-        .def("CalcPotentialEnergy", &Class::CalcPotentialEnergy,
-            py::arg("context"), cls_doc.CalcPotentialEnergy.doc)
-        .def("CalcConservativePower", &Class::CalcConservativePower,
-            py::arg("context"), cls_doc.CalcConservativePower.doc)
         .def("GetPositionLowerLimits", &Class::GetPositionLowerLimits,
             cls_doc.GetPositionLowerLimits.doc)
         .def("GetPositionUpperLimits", &Class::GetPositionUpperLimits,
@@ -530,6 +510,15 @@ void DoScalarDependentDefinitions(py::module m, T) {
                 &Class::HasJointNamed),
             py::arg("name"), py::arg("model_instance"),
             cls_doc.HasJointNamed.doc_2args)
+        .def("HasJointActuatorNamed",
+            overload_cast_explicit<bool, const string&>(
+                &Class::HasJointActuatorNamed),
+            py::arg("name"), cls_doc.HasJointActuatorNamed.doc_1args)
+        .def("HasJointActuatorNamed",
+            overload_cast_explicit<bool, const string&, ModelInstanceIndex>(
+                &Class::HasJointActuatorNamed),
+            py::arg("name"), py::arg("model_instance"),
+            cls_doc.HasJointActuatorNamed.doc_2args)
         .def("GetFrameByName",
             overload_cast_explicit<const Frame<T>&, const string&>(
                 &Class::GetFrameByName),
@@ -577,7 +566,9 @@ void DoScalarDependentDefinitions(py::module m, T) {
             overload_cast_explicit<ModelInstanceIndex, const string&>(
                 &Class::GetModelInstanceByName),
             py::arg("name"), py_reference_internal,
-            cls_doc.GetModelInstanceByName.doc);
+            cls_doc.GetModelInstanceByName.doc)
+        .def("GetTopologyGraphvizString", &Class::GetTopologyGraphvizString,
+            cls_doc.GetTopologyGraphvizString.doc);
     // Geometry.
     cls  // BR
         .def("RegisterAsSourceForSceneGraph",
@@ -612,10 +603,21 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("RegisterCollisionGeometry",
             py::overload_cast<const Body<T>&, const RigidTransform<double>&,
                 const geometry::Shape&, const std::string&,
+                geometry::ProximityProperties>(
+                &Class::RegisterCollisionGeometry),
+            py::arg("body"), py::arg("X_BG"), py::arg("shape"), py::arg("name"),
+            py::arg("properties"),
+            cls_doc.RegisterCollisionGeometry
+                .doc_5args_body_X_BG_shape_name_properties)
+        .def("RegisterCollisionGeometry",
+            py::overload_cast<const Body<T>&, const RigidTransform<double>&,
+                const geometry::Shape&, const std::string&,
                 const CoulombFriction<double>&>(
                 &Class::RegisterCollisionGeometry),
             py::arg("body"), py::arg("X_BG"), py::arg("shape"), py::arg("name"),
-            py::arg("coulomb_friction"), cls_doc.RegisterCollisionGeometry.doc)
+            py::arg("coulomb_friction"),
+            cls_doc.RegisterCollisionGeometry
+                .doc_5args_body_X_BG_shape_name_coulomb_friction)
         .def("get_source_id", &Class::get_source_id, cls_doc.get_source_id.doc)
         .def("get_geometry_query_input_port",
             &Class::get_geometry_query_input_port, py_reference_internal,
@@ -668,6 +670,21 @@ void DoScalarDependentDefinitions(py::module m, T) {
             overload_cast_explicit<const systems::OutputPort<T>&,
                 multibody::ModelInstanceIndex>(&Class::get_state_output_port),
             py_reference_internal, cls_doc.get_state_output_port.doc_1args)
+        .def("get_generalized_acceleration_output_port",
+            overload_cast_explicit<const systems::OutputPort<T>&>(
+                &Class::get_generalized_acceleration_output_port),
+            py_reference_internal,
+            cls_doc.get_generalized_acceleration_output_port.doc_0args)
+        .def("get_generalized_acceleration_output_port",
+            overload_cast_explicit<const systems::OutputPort<T>&,
+                multibody::ModelInstanceIndex>(
+                &Class::get_generalized_acceleration_output_port),
+            py::arg("model_instance"), py_reference_internal,
+            cls_doc.get_generalized_acceleration_output_port.doc_1args)
+        .def("get_reaction_forces_output_port",
+            overload_cast_explicit<const systems::OutputPort<T>&>(
+                &Class::get_reaction_forces_output_port),
+            py_reference_internal, cls_doc.get_reaction_forces_output_port.doc)
         .def("get_contact_results_output_port",
             overload_cast_explicit<const systems::OutputPort<T>&>(
                 &Class::get_contact_results_output_port),
@@ -686,7 +703,10 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.world_frame.doc)
         .def("is_finalized", &Class::is_finalized, cls_doc.is_finalized.doc)
         .def("Finalize", py::overload_cast<>(&Class::Finalize),
-            cls_doc.Finalize.doc);
+            cls_doc.Finalize.doc)
+        .def("set_penetration_allowance", &Class::set_penetration_allowance,
+            py::arg("penetration_allowance") = 0.001,
+            cls_doc.set_penetration_allowance.doc);
     // Position and velocity accessors and mutators.
     cls  // BR
         .def("GetMutablePositionsAndVelocities",
@@ -797,7 +817,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("context"), py::arg("state"), cls_doc.SetDefaultState.doc);
   }
 
-  if (!std::is_same<T, symbolic::Expression>::value) {
+  if constexpr (!std::is_same<T, symbolic::Expression>::value) {
     m.def("AddMultibodyPlantSceneGraph",
         [](systems::DiagramBuilder<T>* builder,
             std::unique_ptr<MultibodyPlant<T>> plant,
@@ -814,8 +834,53 @@ void DoScalarDependentDefinitions(py::module m, T) {
               // Keep alive, ownership: `scene_graph` keeps `builder` alive.
               py_keep_alive(scene_graph_py, builder_py));
         },
-        py::arg("builder"), py::arg("plant") = nullptr,
-        py::arg("scene_graph") = nullptr, doc.AddMultibodyPlantSceneGraph.doc);
+        py::arg("builder"), py::arg("plant"), py::arg("scene_graph") = nullptr,
+        doc.AddMultibodyPlantSceneGraph
+            .doc_3args_systemsDiagramBuilder_stduniqueptr_stduniqueptr);
+
+    m.def("AddMultibodyPlantSceneGraph",
+        [](systems::DiagramBuilder<T>* builder, double time_step,
+            std::unique_ptr<SceneGraph<T>> scene_graph) {
+          auto pair = AddMultibodyPlantSceneGraph<T>(
+              builder, time_step, std::move(scene_graph));
+          // Must do manual keep alive to dig into tuple.
+          py::object builder_py = py::cast(builder, py_reference);
+          py::object plant_py = py::cast(pair.plant, py_reference);
+          py::object scene_graph_py = py::cast(pair.scene_graph, py_reference);
+          return py::make_tuple(
+              // Keep alive, ownership: `plant` keeps `builder` alive.
+              py_keep_alive(plant_py, builder_py),
+              // Keep alive, ownership: `scene_graph` keeps `builder` alive.
+              py_keep_alive(scene_graph_py, builder_py));
+        },
+        py::arg("builder"), py::arg("time_step"),
+        py::arg("scene_graph") = nullptr,
+        doc.AddMultibodyPlantSceneGraph
+            .doc_3args_systemsDiagramBuilder_double_stduniqueptr);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    m.def("AddMultibodyPlantSceneGraph",
+        WrapDeprecated(
+            doc.AddMultibodyPlantSceneGraph
+                .doc_deprecated_deprecated_1args_systemsDiagramBuilder,
+            [](systems::DiagramBuilder<T>* builder) {
+              auto pair = AddMultibodyPlantSceneGraph<T>(builder);
+              // Must do manual keep alive to dig into tuple.
+              py::object builder_py = py::cast(builder, py_reference);
+              py::object plant_py = py::cast(pair.plant, py_reference);
+              py::object scene_graph_py =
+                  py::cast(pair.scene_graph, py_reference);
+              return py::make_tuple(
+                  // Keep alive, ownership: `plant` keeps `builder` alive.
+                  py_keep_alive(plant_py, builder_py),
+                  // Keep alive, ownership: `scene_graph` keeps `builder` alive.
+                  py_keep_alive(scene_graph_py, builder_py));
+            }),
+        py::arg("builder"),
+        doc.AddMultibodyPlantSceneGraph
+            .doc_deprecated_deprecated_1args_systemsDiagramBuilder);
+#pragma GCC diagnostic pop
   }
 
   // ExternallyAppliedSpatialForce
@@ -848,6 +913,32 @@ void DoScalarDependentDefinitions(py::module m, T) {
       m.attr(default_name.c_str()) = cls;
     }
     AddValueInstantiation<Class>(m);
+  }
+
+  // Propeller
+  {
+    using Class = Propeller<T>;
+    constexpr auto& cls_doc = doc.Propeller;
+    auto cls = DefineTemplateClassWithDefault<Class, systems::LeafSystem<T>>(
+        m, "Propeller", param, cls_doc.doc);
+    cls  // BR
+        .def(py::init<const BodyIndex&, const math::RigidTransform<double>&,
+                 double, double>(),
+            py::arg("body_index"),
+            py::arg("X_BP") = math::RigidTransform<double>::Identity(),
+            py::arg("thrust_ratio") = 1.0, py::arg("moment_ratio") = 0.0,
+            doc.Propeller.ctor.doc_4args)
+        .def(py::init<const std::vector<PropellerInfo>&>(),
+            py::arg("propeller_info"), doc.Propeller.ctor.doc_1args)
+        .def("num_propellers", &Class::num_propellers,
+            doc.Propeller.num_propellers.doc)
+        .def("get_command_input_port", &Class::get_command_input_port,
+            py_reference_internal, doc.Propeller.get_command_input_port.doc)
+        .def("get_body_poses_input_port", &Class::get_body_poses_input_port,
+            py_reference_internal, doc.Propeller.get_body_poses_input_port.doc)
+        .def("get_spatial_forces_output_port",
+            &Class::get_spatial_forces_output_port, py_reference_internal,
+            doc.Propeller.get_spatial_forces_output_port.doc);
   }
   // NOLINTNEXTLINE(readability/fn_size)
 }
@@ -902,6 +993,20 @@ PYBIND11_MODULE(plant, m) {
       // Keep alive, transitive: `lcm` keeps `builder` alive.
       py::keep_alive<3, 1>(),
       doc.ConnectContactResultsToDrakeVisualizer.doc_3args);
+
+  py::class_<PropellerInfo>(m, "PropellerInfo", doc.PropellerInfo.doc)
+      .def(py::init<const BodyIndex&, const math::RigidTransform<double>&,
+               double, double>(),
+          py::arg("body_index"),
+          py::arg("X_BP") = math::RigidTransform<double>::Identity(),
+          py::arg("thrust_ratio") = 1.0, py::arg("moment_ratio") = 0.0)
+      .def_readwrite("body_index", &PropellerInfo::body_index,
+          doc.PropellerInfo.body_index.doc)
+      .def_readwrite("X_BP", &PropellerInfo::X_BP, doc.PropellerInfo.X_BP.doc)
+      .def_readwrite("thrust_ratio", &PropellerInfo::thrust_ratio,
+          doc.PropellerInfo.thrust_ratio.doc)
+      .def_readwrite("moment_ratio", &PropellerInfo::moment_ratio,
+          doc.PropellerInfo.moment_ratio.doc);
 }  // NOLINT(readability/fn_size)
 
 }  // namespace pydrake

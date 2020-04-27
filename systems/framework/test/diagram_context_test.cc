@@ -10,6 +10,7 @@
 #include "drake/common/pointer_cast.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_no_throw.h"
+#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/fixed_input_port_value.h"
 #include "drake/systems/framework/leaf_context.h"
@@ -93,6 +94,8 @@ class DiagramContextTest : public ::testing::Test {
     // This chunk of code is partially mimicking Diagram::DoAllocateContext()
     // which is normally in charge of making DiagramContexts.
     context_ = std::make_unique<DiagramContext<double>>(kNumSystems);
+    internal::SystemBaseContextBaseAttorney::set_system_id(
+        context_.get(), internal::SystemId::get_new_id());
 
     // Don't change these indexes -- tests below depend on them.
     AddSystem(*adder0_, SubsystemIndex(0));
@@ -705,6 +708,13 @@ TEST_F(DiagramContextTest, Clone) {
   // Verify that the time was copied.
   EXPECT_EQ(kTime, clone->get_time());
 
+  // Verify that the system id was copied.
+  EXPECT_TRUE(clone->get_system_id().is_valid());
+  EXPECT_EQ(clone->get_system_id(), context_->get_system_id());
+  const ContinuousState<double>& xc = clone->get_continuous_state();
+  EXPECT_TRUE(xc.get_system_id().is_valid());
+  EXPECT_EQ(xc.get_system_id(), context_->get_system_id());
+
   // Verify that the state has the same value.
   VerifyClonedState(clone->get_state());
   // Verify that the parameters have the same value.
@@ -734,9 +744,13 @@ TEST_F(DiagramContextTest, CloneState) {
   VerifyClonedState(*state);
   // Verify that the underlying type was preserved.
   EXPECT_NE(nullptr, dynamic_cast<DiagramState<double>*>(state.get()));
+  ContinuousState<double>& xc = state->get_mutable_continuous_state();
+  // Verify that the system id was copied.
+  EXPECT_TRUE(xc.get_system_id().is_valid());
+  EXPECT_EQ(xc.get_system_id(), context_->get_system_id());
   // Verify that changes to the state do not write through to the original
   // context.
-  state->get_mutable_continuous_state()[1] = 1024.0;
+  xc[1] = 1024.0;
   EXPECT_EQ(1024.0, state->get_continuous_state()[1]);
   EXPECT_EQ(43.0, context_->get_continuous_state()[1]);
 }
@@ -751,6 +765,14 @@ TEST_F(DiagramContextTest, CloneAccuracy) {
   context_->SetAccuracy(unity);
   std::unique_ptr<Context<double>> clone = context_->Clone();
   EXPECT_EQ(clone->get_accuracy().value(), unity);
+}
+
+TEST_F(DiagramContextTest, SubcontextCloneIsError) {
+  const auto& subcontext = context_->GetSubsystemContext(SubsystemIndex{0});
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      subcontext.Clone(), std::logic_error,
+      "Context::Clone..: Cannot clone a non-root Context; "
+      "this Context was created by 'adder0'.");
 }
 
 }  // namespace

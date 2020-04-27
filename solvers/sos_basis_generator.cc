@@ -31,7 +31,7 @@ MonomialVector ExponentsToMonomials(const ExponentList& exponents,
 // Returns a list of all exponents that appear in a polynomial p.
 // E.g., given p = 1 + 2x₀² + 3x₀*x₁², returns [0, 0; 2, 0; 1, 2];
 ExponentList GetPolynomialExponents(const drake::symbolic::Polynomial& p) {
-  const Variables indeterminates{p.indeterminates()};
+  const Variables& indeterminates{p.indeterminates()};
   ExponentList exponents(p.monomial_to_coefficient_map().size(),
                          indeterminates.size());
   int row = 0;
@@ -83,10 +83,9 @@ bool ContainsExponent(const ExponentList& A, int num_rows, const Exponent& B) {
   return false;
 }
 
-/* Intersection(A, B) removes duplicate rows from B and any row that doesn't also
- * appear in A.  For example, given A = [1, 0; 0, 1; 1, 1] and B = [1, 0; 1, 1;
- * 1, 1;], it overwrites B with [1, 0; 1, 1]. */
-
+/* Intersection(A, B) removes duplicate rows from B and any row that doesn't
+ * also appear in A.  For example, given A = [1, 0; 0, 1; 1, 1] and B = [1, 0;
+ * 1, 1; 1, 1;], it overwrites B with [1, 0; 1, 1]. */
 void Intersection(const ExponentList& A, ExponentList* B) {
   DRAKE_ASSERT(A.cols() == B->cols());
   int index = 0;
@@ -260,7 +259,7 @@ ExponentList ConstructMonomialBasis(const ExponentList& exponents_of_p) {
 }  // namespace
 
 MonomialVector ConstructMonomialBasis(const drake::symbolic::Polynomial& p) {
-  const Variables indeterminates{p.indeterminates()};
+  const Variables& indeterminates{p.indeterminates()};
   drake::VectorX<Variable> vars(indeterminates.size());
   int cnt = 0;
   for (auto& var : indeterminates) {

@@ -8,9 +8,11 @@
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/systems/analysis/integrator_base.h"
 #include "drake/systems/analysis/monte_carlo.h"
+#include "drake/systems/analysis/region_of_attraction.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/runge_kutta3_integrator.h"
 #include "drake/systems/analysis/simulator.h"
+#include "drake/systems/analysis/simulator_flags.h"
 
 using std::unique_ptr;
 
@@ -56,7 +58,13 @@ PYBIND11_MODULE(analysis, m) {
             doc.IntegratorBase.set_throw_on_minimum_step_size_violation.doc)
         .def("get_throw_on_minimum_step_size_violation",
             &IntegratorBase<T>::get_throw_on_minimum_step_size_violation,
-            doc.IntegratorBase.get_throw_on_minimum_step_size_violation.doc);
+            doc.IntegratorBase.get_throw_on_minimum_step_size_violation.doc)
+        .def("StartDenseIntegration", &IntegratorBase<T>::StartDenseIntegration,
+            doc.IntegratorBase.StartDenseIntegration.doc)
+        .def("get_dense_output", &IntegratorBase<T>::get_dense_output,
+            py_reference_internal, doc.IntegratorBase.get_dense_output.doc)
+        .def("StopDenseIntegration", &IntegratorBase<T>::StopDenseIntegration,
+            doc.IntegratorBase.StopDenseIntegration.doc);
 
     DefineTemplateClassWithDefault<RungeKutta2Integrator<T>, IntegratorBase<T>>(
         m, "RungeKutta2Integrator", GetPyParam<T>(),
@@ -68,6 +76,12 @@ PYBIND11_MODULE(analysis, m) {
             py::keep_alive<1, 2>(),
             // Keep alive, reference: `self` keeps `context` alive.
             py::keep_alive<1, 4>(), doc.RungeKutta2Integrator.ctor.doc);
+  };
+  type_visit(bind_scalar_types, CommonScalarPack{});
+
+  auto bind_nonsymbolic_scalar_types = [m](auto dummy) {
+    constexpr auto& doc = pydrake_doc.drake.systems;
+    using T = decltype(dummy);
 
     DefineTemplateClassWithDefault<RungeKutta3Integrator<T>, IntegratorBase<T>>(
         m, "RungeKutta3Integrator", GetPyParam<T>(),
@@ -79,8 +93,9 @@ PYBIND11_MODULE(analysis, m) {
             // Keep alive, reference: `self` keeps `context` alive.
             py::keep_alive<1, 3>(), doc.RungeKutta3Integrator.ctor.doc);
 
-    DefineTemplateClassWithDefault<Simulator<T>>(
-        m, "Simulator", GetPyParam<T>(), doc.Simulator.doc)
+    auto cls = DefineTemplateClassWithDefault<Simulator<T>>(
+        m, "Simulator", GetPyParam<T>(), doc.Simulator.doc);
+    cls  // BR
         .def(py::init<const System<T>&, unique_ptr<Context<T>>>(),
             py::arg("system"), py::arg("context") = nullptr,
             // Keep alive, reference: `self` keeps `system` alive.
@@ -93,10 +108,6 @@ PYBIND11_MODULE(analysis, m) {
             doc.Simulator.AdvanceTo.doc)
         .def("AdvancePendingEvents", &Simulator<T>::AdvancePendingEvents,
             doc.Simulator.AdvancePendingEvents.doc)
-        .def("StepTo",
-            WrapDeprecated(
-                doc.Simulator.StepTo.doc_deprecated, &Simulator<T>::AdvanceTo),
-            doc.Simulator.StepTo.doc_deprecated)
         .def("get_context", &Simulator<T>::get_context, py_reference_internal,
             doc.Simulator.get_context.doc)
         .def("get_integrator", &Simulator<T>::get_integrator,
@@ -105,59 +116,111 @@ PYBIND11_MODULE(analysis, m) {
             py_reference_internal, doc.Simulator.get_mutable_integrator.doc)
         .def("get_mutable_context", &Simulator<T>::get_mutable_context,
             py_reference_internal, doc.Simulator.get_mutable_context.doc)
-        .def("reset_integrator",
-            [](Simulator<T>* self,
-                std::unique_ptr<IntegratorBase<T>> integrator) {
-              return self->reset_integrator(std::move(integrator));
-            },
-            py::arg("integrator"),
-            // Keep alive, ownership: `integrator` keeps `self` alive.
-            py::keep_alive<2, 1>(),
-            doc.Simulator.reset_integrator.doc_1args_stduniqueptr)
+        .def("has_context", &Simulator<T>::has_context,
+            doc.Simulator.has_context.doc)
+        .def("reset_context", &Simulator<T>::reset_context, py::arg("context"),
+            // Keep alive, ownership: `context` keeps `self` alive.
+            py::keep_alive<2, 1>(), doc.Simulator.reset_context.doc)
+        // TODO(eric.cousineau): Bind `release_context` once some form of the
+        // PR RobotLocomotion/pybind11#33 lands. Presently, it fails.
         .def("set_publish_every_time_step",
             &Simulator<T>::set_publish_every_time_step,
             doc.Simulator.set_publish_every_time_step.doc)
         .def("set_target_realtime_rate",
             &Simulator<T>::set_target_realtime_rate,
-            doc.Simulator.set_target_realtime_rate.doc);
+            doc.Simulator.set_target_realtime_rate.doc)
+        .def("get_target_realtime_rate",
+            &Simulator<T>::get_target_realtime_rate,
+            doc.Simulator.get_target_realtime_rate.doc)
+        .def("get_actual_realtime_rate",
+            &Simulator<T>::get_actual_realtime_rate,
+            doc.Simulator.get_actual_realtime_rate.doc);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    const char* const reset_integrator_doc =
+        "(Deprecated.) pydrake.systems.Simulator.reset_integrator is "
+        "deprecated and will be removed from Drake on or after 2020-08-01. "
+        "Use pydrake.systems.ResetIntegratorFromFlags instead.";
+    cls  // BR
+        .def("reset_integrator",
+            WrapDeprecated(reset_integrator_doc,
+                [](Simulator<T>* self,
+                    std::unique_ptr<IntegratorBase<T>> integrator) {
+                  return self->reset_integrator(std::move(integrator));
+                }),
+            py::arg("integrator"),
+            // Keep alive, ownership: `integrator` keeps `self` alive.
+            py::keep_alive<2, 1>(), reset_integrator_doc);
+#pragma GCC diagnostic pop
   };
-  type_visit(bind_scalar_types, NonSymbolicScalarPack{});
+  type_visit(bind_nonsymbolic_scalar_types, NonSymbolicScalarPack{});
+
+  // Simulator Flags
+  m  // BR
+      .def("ResetIntegratorFromFlags",
+          [](Simulator<double>* simulator, const std::string& scheme,
+              const double& max_step_size) {
+            IntegratorBase<double>& result =
+                ResetIntegratorFromFlags(simulator, scheme, max_step_size);
+            return &result;
+          },
+          py::arg("simulator"), py::arg("scheme"), py::arg("max_step_size"),
+          py_reference,
+          // Keep alive, reference: `return` keeps `simulator` alive.
+          py::keep_alive<0, 1>(),
+          pydrake_doc.drake.systems.ResetIntegratorFromFlags.doc)
+      .def("GetIntegrationSchemes", &GetIntegrationSchemes,
+          pydrake_doc.drake.systems.GetIntegrationSchemes.doc);
 
   // Monte Carlo Testing
   {
+    // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+    using namespace drake::systems::analysis;
     constexpr auto& doc = pydrake_doc.drake.systems.analysis;
 
     m.def("RandomSimulation",
-        WrapCallbacks(
-            [](const analysis::SimulatorFactory make_simulator,
-                const analysis::ScalarSystemFunction& output, double final_time,
-                RandomGenerator* generator) -> double {
-              return analysis::RandomSimulation(
-                  make_simulator, output, final_time, generator);
-            }),
+        WrapCallbacks([](const SimulatorFactory make_simulator,
+                          const ScalarSystemFunction& output, double final_time,
+                          RandomGenerator* generator) -> double {
+          return RandomSimulation(
+              make_simulator, output, final_time, generator);
+        }),
         py::arg("make_simulator"), py::arg("output"), py::arg("final_time"),
         py::arg("generator"), doc.RandomSimulation.doc);
 
-    py::class_<analysis::RandomSimulationResult>(
+    py::class_<RandomSimulationResult>(
         m, "RandomSimulationResult", doc.RandomSimulationResult.doc)
-        .def_readwrite("output", &analysis::RandomSimulationResult::output,
+        .def_readwrite("output", &RandomSimulationResult::output,
             doc.RandomSimulationResult.output.doc)
         .def_readonly("generator_snapshot",
-            &analysis::RandomSimulationResult::generator_snapshot,
+            &RandomSimulationResult::generator_snapshot,
             doc.RandomSimulationResult.generator_snapshot.doc);
 
     m.def("MonteCarloSimulation",
-        WrapCallbacks(
-            [](const analysis::SimulatorFactory make_simulator,
-                const analysis::ScalarSystemFunction& output, double final_time,
-                int num_samples, RandomGenerator* generator)
-                -> std::vector<analysis::RandomSimulationResult> {
-              return analysis::MonteCarloSimulation(
-                  make_simulator, output, final_time, num_samples, generator);
-            }),
+        WrapCallbacks([](const SimulatorFactory make_simulator,
+                          const ScalarSystemFunction& output, double final_time,
+                          int num_samples, RandomGenerator* generator)
+                          -> std::vector<RandomSimulationResult> {
+          return MonteCarloSimulation(
+              make_simulator, output, final_time, num_samples, generator);
+        }),
         py::arg("make_simulator"), py::arg("output"), py::arg("final_time"),
         py::arg("num_samples"), py::arg("generator"),
         doc.MonteCarloSimulation.doc);
+
+    py::class_<RegionOfAttractionOptions>(
+        m, "RegionOfAttractionOptions", doc.RegionOfAttractionOptions.doc)
+        .def(py::init<>(), doc.RegionOfAttractionOptions.ctor.doc)
+        .def_readwrite("lyapunov_candidate",
+            &RegionOfAttractionOptions::lyapunov_candidate,
+            doc.RegionOfAttractionOptions.lyapunov_candidate.doc)
+        .def_readwrite("state_variables",
+            &RegionOfAttractionOptions::state_variables,
+            doc.RegionOfAttractionOptions.state_variables.doc);
+
+    m.def("RegionOfAttraction", &RegionOfAttraction, py::arg("system"),
+        py::arg("context"), py::arg("options") = RegionOfAttractionOptions(),
+        doc.RegionOfAttraction.doc);
   }
 }
 

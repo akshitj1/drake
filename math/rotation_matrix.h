@@ -44,13 +44,7 @@ namespace math {
 /// @authors Paul Mitiguy (2018) Original author.
 /// @authors Drake team (see https://drake.mit.edu/credits).
 ///
-/// @tparam T The underlying scalar type. Must be a valid Eigen scalar.
-///
-/// Instantiated templates for the following kinds of T's are provided:
-///
-/// - double
-/// - AutoDiffXd
-/// - symbolic::Expression
+/// @tparam_default_scalar
 template <typename T>
 class RotationMatrix {
  public:
@@ -137,8 +131,11 @@ class RotationMatrix {
   /// @li 3rd rotation R_AB: Frames D, C, B (collectively -- as if welded)
   /// rotate relative to frame A by a roll angle `y` about `Bz = Az`.
   /// Note: B and A are no longer aligned.
+  /// @note This method constructs a RotationMatrix from a RollPitchYaw.
+  /// Vice-versa, there are high-accuracy RollPitchYaw constructor/methods that
+  /// form a RollPitchYaw from a rotation matrix.
   explicit RotationMatrix(const RollPitchYaw<T>& rpy) {
-    // TODO(@mitiguy) Add publically viewable documentation on how Sherm and
+    // TODO(@mitiguy) Add publicly viewable documentation on how Sherm and
     // Goldstein like to visualize/conceptualize rotation sequences.
     const T& r = rpy.roll_angle();
     const T& p = rpy.pitch_angle();
@@ -574,6 +571,8 @@ class RotationMatrix {
   /// Returns a quaternion q that represents `this` %RotationMatrix.  Since the
   /// quaternion `q` and `-q` represent the same %RotationMatrix, this method
   /// chooses to return a canonical quaternion, i.e., with q(0) >= 0.
+  /// @note There is a constructor in the RollPitchYaw class that converts
+  /// a rotation matrix to roll-pitch-yaw angles.
   Eigen::Quaternion<T> ToQuaternion() const { return ToQuaternion(R_AB_); }
 
   /// Returns a unit quaternion q associated with the 3x3 matrix M.  Since the

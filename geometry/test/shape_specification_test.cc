@@ -44,10 +44,9 @@ class ReifierTest : public ShapeReifier, public ::testing::Test {
     received_user_data_ = data;
     ellipsoid_made_ = true;
   }
-  void ImplementGeometry(const Mesh&, void*) override {
-    // TODO(SeanCurtis-TRI): Provide body when meshes are meaningfully
-    // supported.
-    EXPECT_TRUE(false) << "Don't test Meshes until they are fully supported";
+  void ImplementGeometry(const Mesh&, void* data) override {
+    received_user_data_ = data;
+    mesh_made_ = true;
   }
   void ImplementGeometry(const Convex&, void* data) override {
     received_user_data_ = data;
@@ -61,6 +60,7 @@ class ReifierTest : public ShapeReifier, public ::testing::Test {
     half_space_made_ = false;
     cylinder_made_ = false;
     convex_made_ = false;
+    mesh_made_ = false;
     received_user_data_ = nullptr;
   }
 
@@ -72,6 +72,7 @@ class ReifierTest : public ShapeReifier, public ::testing::Test {
   bool cylinder_made_{false};
   bool half_space_made_{false};
   bool convex_made_{false};
+  bool mesh_made_{false};
   void* received_user_data_{nullptr};
 };
 
@@ -95,7 +96,8 @@ TEST_F(ReifierTest, ReificationDifferentiation) {
   EXPECT_FALSE(capsule_made_);
   EXPECT_FALSE(convex_made_);
   EXPECT_FALSE(ellipsoid_made_);
-  EXPECT_EQ(s.get_radius(), 1.0);
+  EXPECT_FALSE(mesh_made_);
+  EXPECT_EQ(s.radius(), 1.0);
 
   Reset();
 
@@ -107,6 +109,8 @@ TEST_F(ReifierTest, ReificationDifferentiation) {
   EXPECT_FALSE(box_made_);
   EXPECT_FALSE(capsule_made_);
   EXPECT_FALSE(convex_made_);
+  EXPECT_FALSE(ellipsoid_made_);
+  EXPECT_FALSE(mesh_made_);
 
   Reset();
 
@@ -119,8 +123,9 @@ TEST_F(ReifierTest, ReificationDifferentiation) {
   EXPECT_FALSE(capsule_made_);
   EXPECT_FALSE(convex_made_);
   EXPECT_FALSE(ellipsoid_made_);
-  EXPECT_EQ(cylinder.get_radius(), 1);
-  EXPECT_EQ(cylinder.get_length(), 2);
+  EXPECT_FALSE(mesh_made_);
+  EXPECT_EQ(cylinder.radius(), 1);
+  EXPECT_EQ(cylinder.length(), 2);
 
   Reset();
 
@@ -132,6 +137,8 @@ TEST_F(ReifierTest, ReificationDifferentiation) {
   EXPECT_TRUE(box_made_);
   EXPECT_FALSE(capsule_made_);
   EXPECT_FALSE(convex_made_);
+  EXPECT_FALSE(ellipsoid_made_);
+  EXPECT_FALSE(mesh_made_);
   EXPECT_EQ(box.width(), 1);
   EXPECT_EQ(box.depth(), 2);
   EXPECT_EQ(box.height(), 3);
@@ -147,8 +154,9 @@ TEST_F(ReifierTest, ReificationDifferentiation) {
   EXPECT_TRUE(capsule_made_);
   EXPECT_FALSE(convex_made_);
   EXPECT_FALSE(ellipsoid_made_);
-  EXPECT_EQ(capsule.get_radius(), 2);
-  EXPECT_EQ(capsule.get_length(), 1);
+  EXPECT_FALSE(mesh_made_);
+  EXPECT_EQ(capsule.radius(), 2);
+  EXPECT_EQ(capsule.length(), 1);
 
   Reset();
 
@@ -161,6 +169,7 @@ TEST_F(ReifierTest, ReificationDifferentiation) {
   EXPECT_FALSE(capsule_made_);
   EXPECT_TRUE(convex_made_);
   EXPECT_FALSE(ellipsoid_made_);
+  EXPECT_FALSE(mesh_made_);
 
   Reset();
 
@@ -173,9 +182,25 @@ TEST_F(ReifierTest, ReificationDifferentiation) {
   EXPECT_FALSE(capsule_made_);
   EXPECT_FALSE(convex_made_);
   EXPECT_TRUE(ellipsoid_made_);
-  EXPECT_EQ(ellipsoid.get_a(), 1);
-  EXPECT_EQ(ellipsoid.get_b(), 2);
-  EXPECT_EQ(ellipsoid.get_c(), 3);
+  EXPECT_FALSE(mesh_made_);
+  EXPECT_EQ(ellipsoid.a(), 1);
+  EXPECT_EQ(ellipsoid.b(), 2);
+  EXPECT_EQ(ellipsoid.c(), 3);
+
+  Reset();
+
+  Mesh mesh{"fictitious_mesh_name.obj", 1.4};
+  mesh.Reify(this);
+  EXPECT_FALSE(sphere_made_);
+  EXPECT_FALSE(half_space_made_);
+  EXPECT_FALSE(cylinder_made_);
+  EXPECT_FALSE(box_made_);
+  EXPECT_FALSE(capsule_made_);
+  EXPECT_FALSE(convex_made_);
+  EXPECT_FALSE(ellipsoid_made_);
+  EXPECT_TRUE(mesh_made_);
+  EXPECT_EQ(mesh.filename(), std::string("fictitious_mesh_name.obj"));
+  EXPECT_EQ(mesh.scale(), 1.4);
 }
 
 // Confirms that the ReifiableShape properly clones the right types.
@@ -195,7 +220,7 @@ TEST_F(ReifierTest, CloningShapes) {
     cloned_shape = local_sphere.Clone();
     Sphere* raw_sphere = static_cast<Sphere*>(cloned_shape.get());
     // Confirm it's an appropriate copy.
-    ASSERT_EQ(raw_sphere->get_radius(), local_sphere.get_radius());
+    ASSERT_EQ(raw_sphere->radius(), local_sphere.radius());
   }
   // Now confirm it's still alive. I should be able to reify it into a sphere.
   cloned_shape->Reify(this);
@@ -204,7 +229,9 @@ TEST_F(ReifierTest, CloningShapes) {
   ASSERT_FALSE(cylinder_made_);
   ASSERT_FALSE(box_made_);
   ASSERT_FALSE(capsule_made_);
+  EXPECT_FALSE(convex_made_);
   ASSERT_FALSE(ellipsoid_made_);
+  EXPECT_FALSE(mesh_made_);
 }
 
 

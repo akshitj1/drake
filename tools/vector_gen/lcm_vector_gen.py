@@ -7,10 +7,8 @@ import collections
 import os
 import subprocess
 
-import google.protobuf.text_format
 import yaml
 
-from drake.tools.vector_gen import named_vector_pb2
 from drake.tools.lint.clang_format import get_clang_format_path
 from drake.tools.lint.find_data import find_data
 
@@ -218,7 +216,7 @@ def generate_set_to_named_variables(hh, caller_context, fields):
 
 
 DO_CLONE = """
-  DRAKE_NODISCARD %(camel)s<T>* DoClone() const final {
+  [[nodiscard]] %(camel)s<T>* DoClone() const final {
     return new %(camel)s;
   }
 """
@@ -253,7 +251,7 @@ ACCESSOR_FIELD_METHODS = """
   }
   /// Fluent setter that matches %(field)s().
   /// Returns a copy of `this` with %(field)s set to a new value.
-  DRAKE_NODISCARD %(camel)s<T>
+  [[nodiscard]] %(camel)s<T>
   with_%(field)s(const T& %(field)s) const {
     %(camel)s<T> result(*this);
     result.set_%(field)s(%(field)s);
@@ -409,7 +407,6 @@ VECTOR_HH_PREAMBLE = """
 #include <Eigen/Core>
 
 #include "drake/common/drake_bool.h"
-#include "drake/common/drake_nodiscard.h"
 #include "drake/common/dummy_value.h"
 #include "drake/common/name_value.h"
 #include "drake/common/never_destroyed.h"
@@ -475,22 +472,13 @@ LCMTYPE_POSTAMBLE = """
 
 def _schema_filename_to_snake(named_vector_filename):
     basename = os.path.basename(named_vector_filename)
-    if basename.endswith("_named_vector.yaml"):
-        snake = basename[:-len("_named_vector.yaml")]
-        flavor = "yaml"
-    elif basename.endswith(".named_vector"):
-        # TODO(jwnimmer-tri) Remove support on or after 2020-02-01.
-        snake = basename[:-len(".named_vector")]
-        flavor = "proto"
-    else:
-        # The .bzl checks should have caught this already.
-        assert False, basename
-    return snake, flavor
+    assert basename.endswith("_named_vector.yaml")
+    snake = basename[:-len("_named_vector.yaml")]
+    return snake
 
 
 def generate_code(
         named_vector_filename,
-        flavor=None,
         include_prefix=None,
         vector_hh_filename=None,
         vector_cc_filename=None,
@@ -505,55 +493,30 @@ def generate_code(
         cxx_include_path = "/".join(cxx_include_path.split("/")[2:])
     if include_prefix:
         cxx_include_path = os.path.join(include_prefix, cxx_include_path)
-    snake, inferred_flavor = _schema_filename_to_snake(named_vector_filename)
-    assert inferred_flavor == flavor, inferred_flavor
+    snake = _schema_filename_to_snake(named_vector_filename)
     screaming_snake = snake.upper()
     camel = "".join([x.capitalize() for x in snake.split("_")])
 
-    if flavor == 'proto':
-        # Load the vector's details from protobuf.
-        # In the future, this can be extended for nested messages.
-        with open(named_vector_filename, "r") as f:
-            vec = named_vector_pb2.NamedVector()
-            google.protobuf.text_format.Merge(f.read(), vec)
-            fields = [{
-                'name': el.name,
-                'doc': el.doc,
-                'default_value': el.default_value,
-                'doc_units': el.doc_units,
-                'min_value': el.min_value,
-                'max_value': el.max_value,
-            } for el in vec.element]
-            for item in fields:
-                if len(item['default_value']) == 0:
-                    print("error: a default_value for",
-                          "{}.{} is required".format(
-                              snake, item['name']))
-            if vec.namespace:
-                namespace_list = vec.namespace.split("::")
-            else:
-                namespace_list = []
-    else:
-        assert flavor == 'yaml', flavor
-        # Load the vector's details.
-        with open(named_vector_filename, 'r') as f:
-            data = yaml.safe_load(f)
-        fields = [{
-            'name': str(el['name']),
-            'doc': str(el.get('doc', '')),
-            'default_value': str(el['default_value']),
-            'doc_units': str(el.get('doc_units', '')),
-            'min_value': str(el.get('min_value', '')),
-            'max_value': str(el.get('max_value', '')),
-        } for el in data['elements']]
-        namespace_list = data['namespace'].split('::')
+    # Load the vector's details.
+    with open(named_vector_filename, 'r') as f:
+        data = yaml.safe_load(f)
+    fields = [{
+        'name': str(el['name']),
+        'doc': str(el.get('doc', '')),
+        'default_value': str(el['default_value']),
+        'doc_units': str(el.get('doc_units', '')),
+        'min_value': str(el.get('min_value', '')),
+        'max_value': str(el.get('max_value', '')),
+    } for el in data['elements']]
+    namespace_list = data['namespace'].split('::')
 
     # Default some field attributes if they are missing.
     for item in fields:
         if len(item['doc_units']) == 0:
             item['doc_units'] = DEFAULT_CTOR_FIELD_UNKNOWN_DOC_UNITS
 
-    # The C++ namespace open & close dance is as requested in the protobuf.
+    # The C++ namespace open & close dance is as requested in the
+    # `*.named_vector.yaml` specification.
     opening_namespace = "".join(["namespace " + x + "{\n"
                                  for x in namespace_list])
     closing_namespace = "".join(["}  // namespace " + x + "\n"
@@ -632,7 +595,7 @@ def generate_all_code(args):
     # Match srcs to outs.
     src_to_args = collections.OrderedDict()
     for one_src in args.srcs:
-        snake, flavor = _schema_filename_to_snake(one_src)
+        snake = _schema_filename_to_snake(one_src)
         basename_to_kind = {
             snake + ".h": "vector_hh_filename",
             snake + ".cc": "vector_cc_filename",
@@ -647,7 +610,6 @@ def generate_all_code(args):
             print("warning: no outs matched for src " + one_src)
             continue
         kwargs_for_generate["include_prefix"] = args.include_prefix
-        kwargs_for_generate["flavor"] = flavor
         src_to_args[one_src] = kwargs_for_generate
     # Make sure all outs will be generated.
     covered_outs = set()

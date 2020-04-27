@@ -12,6 +12,7 @@
 
 #include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/find_resource.h"
+#include "drake/common/nice_type_name.h"
 #include "drake/common/symbolic.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_no_throw.h"
@@ -31,8 +32,10 @@
 #include "drake/multibody/benchmarks/pendulum/make_pendulum_plant.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/plant/externally_applied_spatial_force.h"
+#include "drake/multibody/test_utilities/add_fixed_objects_to_plant.h"
 #include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/revolute_joint.h"
+#include "drake/multibody/tree/revolute_spring.h"
 #include "drake/multibody/tree/rigid_body.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/continuous_state.h"
@@ -243,6 +246,19 @@ GTEST_TEST(MultibodyPlant, SimpleModelCreation) {
   EXPECT_EQ(pin_joint.model_instance(), pendulum_model_instance);
   EXPECT_THROW(plant->GetJointByName(kInvalidName), std::logic_error);
 
+  // Get force elements by index. In this case the default gravity field.
+  const ForceElementIndex gravity_field_index(0);
+  EXPECT_EQ(
+      &plant->gravity_field(),
+      &plant->GetForceElement<UniformGravityFieldElement>(gravity_field_index));
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      plant->GetForceElement<RevoluteSpring>(gravity_field_index),
+      std::logic_error,
+      ".*not of type '.*RevoluteSpring<double>' but of type "
+      "'.*UniformGravityFieldElement<double>'.");
+  const ForceElementIndex invalid_force_index(plant->num_force_elements() + 1);
+  EXPECT_ANY_THROW(plant->GetForceElement<RevoluteSpring>(invalid_force_index));
+
   // Get joint indices by model instance
   const std::vector<JointIndex> acrobot_joint_indices =
       plant->GetJointIndices(default_model_instance());
@@ -305,7 +321,7 @@ GTEST_TEST(MultibodyPlant, SimpleModelCreation) {
 
 GTEST_TEST(MultibodyPlantTest, AddMultibodyPlantSceneGraph) {
   systems::DiagramBuilder<double> builder;
-  auto pair = AddMultibodyPlantSceneGraph(&builder);
+  auto pair = AddMultibodyPlantSceneGraph(&builder, 0.0);
 
   MultibodyPlant<double>* plant{};
   geometry::SceneGraph<double>* scene_graph{};
@@ -316,6 +332,15 @@ GTEST_TEST(MultibodyPlantTest, AddMultibodyPlantSceneGraph) {
   // Check referencing.
   MultibodyPlant<double>& plant_ref = pair;
   EXPECT_EQ(&plant_ref, plant);
+
+  // Check support for C++17's structured binding.
+  auto [first_element, second_element] =
+      AddMultibodyPlantSceneGraph(&builder, 0.0);
+  // Verify the expected types.
+  EXPECT_EQ(drake::NiceTypeName::Get(first_element),
+            drake::NiceTypeName::Get<MultibodyPlant<double>>());
+  EXPECT_EQ(drake::NiceTypeName::Get(second_element),
+            drake::NiceTypeName::Get<SceneGraph<double>>());
 
   // These should fail:
   // AddMultibodyPlantSceneGraphResult<double> extra(plant, scene_graph);
@@ -341,7 +366,7 @@ GTEST_TEST(MultibodyPlantTest, EmptyWorldDiscrete) {
 }
 
 GTEST_TEST(MultibodyPlantTest, EmptyWorldContinuous) {
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   plant.Finalize();
   EXPECT_EQ(plant.num_velocities(), 0);
   EXPECT_EQ(plant.num_positions(), 0);
@@ -358,7 +383,7 @@ GTEST_TEST(MultibodyPlantTest, EmptyWorldContinuous) {
 GTEST_TEST(ActuationPortsTest, CheckActuation) {
   // Create a MultibodyPlant consisting of two model instances, one actuated
   // and the other unactuated.
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   const std::string acrobot_path = FindResourceOrThrow(
       "drake/multibody/benchmarks/acrobot/acrobot.sdf");
   const std::string cylinder_path = FindResourceOrThrow(
@@ -397,23 +422,20 @@ GTEST_TEST(ActuationPortsTest, CheckActuation) {
 
   // Verify that derivatives can be computed after fixing the acrobot actuation
   // input port.
-  context->FixInputPort(
-      plant.get_actuation_input_port(acrobot_instance).get_index(),
-      Vector1d(0.0));
+  plant.get_actuation_input_port(acrobot_instance).FixValue(context.get(), 0.0);
   DRAKE_EXPECT_NO_THROW(
       plant.CalcTimeDerivatives(*context, continuous_state.get()));
 
   // Verify that derivatives can be computed after fixing the cylinder actuation
   // input port with an empty vector.
-  context->FixInputPort(
-      plant.get_actuation_input_port(cylinder_instance).get_index(),
-      VectorXd(0));
+  plant.get_actuation_input_port(cylinder_instance)
+      .FixValue(context.get(), VectorXd(0));
   DRAKE_EXPECT_NO_THROW(
       plant.CalcTimeDerivatives(*context, continuous_state.get()));
 }
 
 GTEST_TEST(MultibodyPlant, UniformGravityFieldElementTest) {
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
 
   DRAKE_EXPECT_THROWS_MESSAGE(
       plant.AddForceElement<UniformGravityFieldElement>(
@@ -432,7 +454,7 @@ class AcrobotPlantTests : public ::testing::Test {
     // Finalize() conditions.
     const std::string full_name = FindResourceOrThrow(
         "drake/multibody/benchmarks/acrobot/acrobot.sdf");
-    std::tie(plant_, scene_graph_) = AddMultibodyPlantSceneGraph(&builder);
+    std::tie(plant_, scene_graph_) = AddMultibodyPlantSceneGraph(&builder, 0.0);
     Parser(plant_).AddModelFromFile(full_name);
     // Sanity check on the availability of the optional source id before using
     // it.
@@ -475,8 +497,8 @@ class AcrobotPlantTests : public ::testing::Test {
         *plant_, context_.get());
 
     ASSERT_GT(plant_->num_actuators(), 0);
-    input_port_ = &plant_context_->FixInputPort(
-        plant_->get_actuation_input_port().get_index(), Vector1<double>(0.0));
+    input_port_ =
+        &plant_->get_actuation_input_port().FixValue(plant_context_, 0.0);
   }
 
   void SetUpDiscreteAcrobotPlant(double time_step) {
@@ -489,9 +511,8 @@ class AcrobotPlantTests : public ::testing::Test {
 
     discrete_context_ = discrete_plant_->CreateDefaultContext();
     ASSERT_EQ(discrete_plant_->num_actuators(), 1);
-    discrete_context_->FixInputPort(
-        discrete_plant_->get_actuation_input_port().get_index(),
-        Vector1<double>(0.0));
+    discrete_plant_->get_actuation_input_port().FixValue(
+        discrete_context_.get(), 0.0);
 
     ASSERT_EQ(discrete_plant_->num_positions(), 2);
     ASSERT_EQ(discrete_plant_->num_velocities(), 2);
@@ -825,7 +846,7 @@ TEST_F(AcrobotPlantTests, SetDefaultState) {
 GTEST_TEST(MultibodyPlantTest, SetDefaultFreeBodyPose) {
   // We cannot use Acrobot for testing `SetDefaultFreeBodyPose` since it has no
   // free bodies.
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   const auto& body = plant.AddRigidBody("body", SpatialInertia<double>());
   const RigidTransformd X_WB_default(
       RollPitchYawd(0.1, 0.2, 0.3), Vector3d(1, 2, 3));
@@ -870,6 +891,42 @@ TEST_F(AcrobotPlantTests, SetRandomState) {
       random_context->get_mutable_continuous_state_vector().CopyToVector()));
 }
 
+GTEST_TEST(MultibodyPlantTest, Graphviz) {
+  MultibodyPlant<double> plant(0.0);
+  const std::string acrobot_path =
+      FindResourceOrThrow("drake/multibody/benchmarks/acrobot/acrobot.sdf");
+  const std::string cylinder_path = FindResourceOrThrow(
+      "drake/multibody/benchmarks/free_body/uniform_solid_cylinder.urdf");
+  Parser(&plant).AddModelFromFile(acrobot_path);
+  Parser(&plant).AddModelFromFile(cylinder_path);
+  Parser(&plant).AddModelFromFile(cylinder_path, "cylinder2");
+
+  plant.set_name("MyTestMBP");
+  const std::string dot = plant.GetTopologyGraphvizString();
+
+  // Check that the diagram is labeled with the system name.
+  EXPECT_NE(std::string::npos, dot.find("MyTestMBP")) << dot;
+  // Check that we have subgraphs and they use the "cluster" prefix.
+  EXPECT_NE(std::string::npos, dot.find("subgraph cluster")) << dot;
+  // Check that we have a body0 - body4 (world, 2 for acrobot, 2 cylinders).
+  for (int i = 0; i < 5; ++i) {
+    EXPECT_NE(std::string::npos, dot.find("body" + std::to_string(i))) << dot;
+  }
+  // Check that the cylinder's body appears twice.
+  const size_t pos = dot.find("uniformSolidCylinder");
+  EXPECT_NE(std::string::npos, pos) << dot;
+  EXPECT_NE(std::string::npos, dot.find("uniformSolidCylinder", pos + 1))
+      << dot;
+  // Check for the second cylinder model instance.
+  EXPECT_NE(std::string::npos, dot.find("cylinder2")) << dot;
+  // Check for the Acrobot elbow joint.
+  EXPECT_NE(std::string::npos, dot.find("ElbowJoint [revolute]")) << dot;
+
+  // Check that the same string appears before and after calling Finalize().
+  plant.Finalize();
+  EXPECT_STREQ(dot.c_str(), plant.GetTopologyGraphvizString().c_str());
+}
+
 // Verifies that the right errors get invoked upon finalization.
 GTEST_TEST(MultibodyPlantTest, FilterAdjacentBodiesSourceErrors) {
   SceneGraph<double> scene_graph;
@@ -877,13 +934,13 @@ GTEST_TEST(MultibodyPlantTest, FilterAdjacentBodiesSourceErrors) {
   // Case: Finalize w/o having registered as geometry source but without
   // providing a scene graph -- no error.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     DRAKE_EXPECT_NO_THROW(plant.Finalize());
   }
 
   // Case: Registered as source, correct finalization.
   {
-    MultibodyPlant<double> plant;
+    MultibodyPlant<double> plant(0.0);
     plant.RegisterAsSourceForSceneGraph(&scene_graph);
     DRAKE_EXPECT_NO_THROW(plant.Finalize());
   }
@@ -898,9 +955,8 @@ GTEST_TEST(MultibodyPlantTest, FilterAdjacentBodiesSourceErrors) {
 // (SN-1, SN) and between the ground and all elements: (G, S1), (G, S2), ...,
 // (G, SN).
 //
-// The chain terminates with two additional bodies: one body registers a frame
-// (but has no geometry), the other has no frame at all. It will have no bearing
-// on collision tests but is used for geometry collection testing.
+// The chain terminates with one additional body with no geometry.  It has no
+// bearing on collision tests but is used for geometry collection testing.
 //
 // Also accepts a filtering function that is applied between geometry
 // registration and context compilation.
@@ -911,7 +967,7 @@ class SphereChainScenario {
       std::function<void(SphereChainScenario*)> apply_filters = nullptr) {
     using std::to_string;
     systems::DiagramBuilder<double> builder;
-    std::tie(plant_, scene_graph_) = AddMultibodyPlantSceneGraph(&builder);
+    std::tie(plant_, scene_graph_) = AddMultibodyPlantSceneGraph(&builder, 0.0);
 
     // A half-space for the ground geometry.
     ground_id_ = plant_->RegisterCollisionGeometry(
@@ -986,6 +1042,17 @@ class SphereChainScenario {
     return query_object.ComputePointPairPenetration();
   }
 
+  // Get all bodies of the internal plant.
+  std::vector<const Body<double>*> get_all_bodies() const {
+    std::vector<const Body<double>*> all_bodies;
+    all_bodies.push_back(no_geometry_body_);
+    for (const auto sphere : spheres_) {
+      all_bodies.push_back(sphere);
+    }
+    all_bodies.push_back(&plant_->world_body());
+    return all_bodies;
+  }
+
   const RigidBody<double>& sphere(int i) const { return *spheres_.at(i); }
   const RigidBody<double>& no_geometry_body() const {
     return *no_geometry_body_;
@@ -1022,6 +1089,30 @@ class SphereChainScenario {
   std::set<std::pair<GeometryId, GeometryId>> unfiltered_collisions_;
   const RigidBody<double>* no_geometry_body_{};
 };
+
+// This confirms that every body *always* has a corresponding SceneGraph FrameId
+// if the MBP has been registered as a SceneGraph source.
+GTEST_TEST(MultibodyPlantTest, AutoBodySceneGraphRegistration) {
+  MultibodyPlant<double> plant(0.0);
+  const RigidBody<double>& body1 = plant.AddRigidBody(
+      "body1", SpatialInertia<double>());
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      plant.GetBodyFrameIdOrThrow(body1.index()), std::logic_error,
+      "Body 'body1' does not have geometry registered with it.");
+
+  geometry::SceneGraph<double> scene_graph;
+  plant.RegisterAsSourceForSceneGraph(&scene_graph);
+  ASSERT_TRUE(plant.geometry_source_is_registered());
+
+  // Now that the plant has been registered as a source, old bodies have been
+  // updated with FrameIds.
+  DRAKE_EXPECT_NO_THROW(plant.GetBodyFrameIdOrThrow(body1.index()));
+
+  // And new bodies have FrameIds immediately upon creation.
+  const RigidBody<double>& body2 = plant.AddRigidBody(
+      "body2", SpatialInertia<double>());
+  DRAKE_EXPECT_NO_THROW(plant.GetBodyFrameIdOrThrow(body2.index()));
+}
 
 // Tests the automatic filtering of adjacent bodies.
 // Introduces a ground plane with three spheres sitting on the plane.
@@ -1060,7 +1151,7 @@ GTEST_TEST(MultibodyPlantTest, FilterAdjacentBodies) {
 
 // Tests the error conditions for CollectRegisteredGeometries.
 GTEST_TEST(MultibodyPlantTest, CollectRegisteredGeometriesErrors) {
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
 
   // A throw-away rigid body I can use to satisfy the function interface; it
   // will never be used because the function will fail in a pre-requisite test.
@@ -1118,7 +1209,7 @@ GTEST_TEST(MultibodyPlantTest, CollectRegisteredGeometries) {
         plant.CollectRegisteredGeometries({&scenario.no_geometry_body()});
     GeometrySetTester tester(&set);
     EXPECT_EQ(tester.num_geometries(), 0);
-    EXPECT_EQ(tester.num_frames(), 0);
+    EXPECT_EQ(tester.num_frames(), 1);
   }
 
   // Case: Include the world body.
@@ -1131,6 +1222,16 @@ GTEST_TEST(MultibodyPlantTest, CollectRegisteredGeometries) {
     EXPECT_EQ(tester.num_geometries(), 0);
     EXPECT_FALSE(tester.contains(scenario.ground_id()));
   }
+
+  // Case: Consider all bodies.
+  {
+    GeometrySet set =
+        plant.CollectRegisteredGeometries(scenario.get_all_bodies());
+    GeometrySetTester tester(&set);
+    EXPECT_EQ(tester.num_frames(), plant.num_bodies());
+    EXPECT_EQ(tester.num_geometries(), 0);
+    EXPECT_FALSE(tester.contains(scenario.ground_id()));
+  }
 }
 
 // Verifies the process of getting welded bodies.
@@ -1140,7 +1241,7 @@ GTEST_TEST(MultibodyPlantTest, GetBodiesWeldedTo) {
   // welded-together bodies.
   const std::string sdf_file =
       FindResourceOrThrow("drake/multibody/plant/test/split_pendulum.sdf");
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   Parser(&plant).AddModelFromFile(sdf_file);
   const Body<double>& upper = plant.GetBodyByName("upper_section");
   const Body<double>& lower = plant.GetBodyByName("lower_section");
@@ -1165,17 +1266,26 @@ GTEST_TEST(MultibodyPlantTest, GetBodiesWeldedTo) {
               UnorderedElementsAre(&upper, &lower));
 }
 
-// Utility to verify that the only port of MultibodyPlant that is a feedthrough
-// is the port for joint reaction forces.
-bool OnlyJointReactionForcesFeedthrough(const MultibodyPlant<double>& plant) {
+// Utility to verify that the only ports of MultibodyPlant that are feedthrough
+// are acceleration and reaction force ports.
+bool OnlyAccelerationAndReactionPortsFeedthrough(
+    const MultibodyPlant<double>& plant) {
+  // Whitelist the indices of all ports that can be feedthrough.
+  std::set<int> ok_to_feedthrough;
+  ok_to_feedthrough.insert(plant.get_reaction_forces_output_port().get_index());
+  ok_to_feedthrough.insert(
+      plant.get_generalized_acceleration_output_port().get_index());
+  for (ModelInstanceIndex i(0); i < plant.num_model_instances(); ++i)
+    ok_to_feedthrough.insert(
+        plant.get_generalized_acceleration_output_port(i).get_index());
+
+  // Now find all the feedthrough ports and make sure they are on the whitelist.
   const std::multimap<int, int> feedthroughs = plant.GetDirectFeedthroughs();
-  bool only_reaction_forces_feedthrough = true;
-  for (auto inout_pair : feedthroughs) {
-    if (inout_pair.second !=
-        plant.get_reaction_forces_output_port().get_index())
-      only_reaction_forces_feedthrough = false;
+  for (const auto& inout_pair : feedthroughs) {
+    if (ok_to_feedthrough.count(inout_pair.second) == 0)
+      return false;  // Found a spurious feedthrough port.
   }
-  return only_reaction_forces_feedthrough;
+  return true;
 }
 
 // Verifies the process of collision geometry registration with a
@@ -1190,7 +1300,7 @@ GTEST_TEST(MultibodyPlantTest, CollisionGeometryRegistration) {
   const double x_offset = 0.6;
 
   SceneGraph<double> scene_graph;
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   plant.RegisterAsSourceForSceneGraph(&scene_graph);
 
   // A half-space for the ground geometry.
@@ -1208,19 +1318,32 @@ GTEST_TEST(MultibodyPlantTest, CollisionGeometryRegistration) {
   GeometryId sphere1_id = plant.RegisterCollisionGeometry(
       sphere1, RigidTransformd::Identity(), geometry::Sphere(radius),
       "collision", sphere1_friction);
+  geometry::ProximityProperties properties;
+  properties.AddProperty("test", "dummy", 7);
+  CoulombFriction<double> sphere2_friction(0.7, 0.6);
+  geometry::AddContactMaterial({}, {}, sphere2_friction, &properties);
   const RigidBody<double>& sphere2 =
       plant.AddRigidBody("Sphere2", SpatialInertia<double>());
-  CoulombFriction<double> sphere2_friction(0.7, 0.6);
   GeometryId sphere2_id = plant.RegisterCollisionGeometry(
       sphere2, RigidTransformd::Identity(), geometry::Sphere(radius),
-      "collision", sphere2_friction);
+      "collision", std::move(properties));
+
+  // Confirm externally-defined proximity properties propagate through.
+  {
+    EXPECT_NE(scene_graph.model_inspector().GetProximityProperties(sphere2_id),
+              nullptr);
+    const geometry::ProximityProperties& props =
+        *scene_graph.model_inspector().GetProximityProperties(sphere2_id);
+    EXPECT_TRUE(props.HasProperty("test", "dummy"));
+    EXPECT_EQ(props.GetProperty<int>("test", "dummy"), 7);
+  }
 
   // We are done defining the model.
   plant.Finalize();
 
-  // Only joint reaction forces feedthrough, even with the new ports
-  // related to SceneGraph interaction.
-  EXPECT_TRUE(OnlyJointReactionForcesFeedthrough(plant));
+  // Only accelerations and joint reaction forces feedthrough, even with the
+  // new ports related to SceneGraph interaction.
+  EXPECT_TRUE(OnlyAccelerationAndReactionPortsFeedthrough(plant));
 
   EXPECT_EQ(plant.num_visual_geometries(), 0);
   EXPECT_EQ(plant.num_collision_geometries(), 3);
@@ -1292,7 +1415,7 @@ GTEST_TEST(MultibodyPlantTest, VisualGeometryRegistration) {
   temp_engine->set_force_accept(true);
   const DummyRenderEngine& render_engine = *temp_engine;
   scene_graph.AddRenderer("dummy", move(temp_engine));
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   plant.RegisterAsSourceForSceneGraph(&scene_graph);
   EXPECT_EQ(render_engine.num_registered(), 0);
 
@@ -1314,11 +1437,18 @@ GTEST_TEST(MultibodyPlantTest, VisualGeometryRegistration) {
   EXPECT_EQ(render_engine.num_registered(), 2);
   const RigidBody<double>& sphere2 =
       plant.AddRigidBody("Sphere2", SpatialInertia<double>());
-  Vector4<double> sphere2_diffuse{0.1, 0.9, 0.1, 0.5};
+  IllustrationProperties sphere2_props;
+  const Vector4<double> sphere2_diffuse{0.1, 0.9, 0.1, 0.5};
+  sphere2_props.AddProperty("phong", "diffuse", sphere2_diffuse);
+  sphere2_props.AddProperty("phong", "diffuse_map", "empty.png");
+  sphere2_props.AddProperty("renderer", "accepting",
+                            std::set<std::string>{"not_dummy"});
   GeometryId sphere2_id = plant.RegisterVisualGeometry(
-      sphere2, RigidTransformd::Identity(), geometry::Sphere(radius),
-      "visual", sphere2_diffuse);
-  EXPECT_EQ(render_engine.num_registered(), 3);
+      sphere2, RigidTransformd::Identity(), geometry::Sphere(radius), "visual",
+      sphere2_props);
+  // Because sphere 2 white listed a *different* renderer, it didn't get added
+  // to render_engine.
+  EXPECT_EQ(render_engine.num_registered(), 2);
 
   // We are done defining the model.
   plant.Finalize();
@@ -1363,6 +1493,11 @@ GTEST_TEST(MultibodyPlantTest, VisualGeometryRegistration) {
     const Vector4<double>& test_diffuse = get_diffuse_color(sphere2_id);
     EXPECT_TRUE(CompareMatrices(test_diffuse, sphere2_diffuse, 0.0,
                                 MatrixCompareType::absolute));
+    const IllustrationProperties* material =
+        inspector.GetIllustrationProperties(sphere2_id);
+    ASSERT_TRUE(material->HasProperty("phong", "diffuse_map"));
+    EXPECT_EQ(material->GetProperty<std::string>("phong", "diffuse_map"),
+        "empty.png");
   }
 }
 
@@ -1394,11 +1529,9 @@ GTEST_TEST(MultibodyPlantTest, LinearizePendulum) {
   const auto& pin =
       pendulum->GetJointByName<RevoluteJoint>(parameters.pin_joint_name());
   unique_ptr<Context<double>> context = pendulum->CreateDefaultContext();
-  context->FixInputPort(pendulum->get_actuation_input_port().get_index(),
-                        Vector1d{0.0});
-  context->FixInputPort(
-      pendulum->get_applied_generalized_force_input_port().get_index(),
-      Vector1d{0.0});
+  pendulum->get_actuation_input_port().FixValue(context.get(), 0.0);
+  pendulum->get_applied_generalized_force_input_port().FixValue(context.get(),
+                                                                0.0);
 
   // First we will linearize about the unstable fixed point with the pendulum
   // in its inverted position.
@@ -1437,7 +1570,7 @@ GTEST_TEST(MultibodyPlantTest, LinearizePendulum) {
   EXPECT_TRUE(CompareMatrices(linearized_pendulum->B(), B, kTolerance));
 }
 
-TEST_F(AcrobotPlantTests, EvalContinuousStateOutputPort) {
+TEST_F(AcrobotPlantTests, EvalStateAndAccelerationOutputPorts) {
   EXPECT_EQ(plant_->num_visual_geometries(), 3);
   EXPECT_TRUE(plant_->geometry_source_is_registered());
   EXPECT_TRUE(plant_->get_source_id());
@@ -1445,14 +1578,16 @@ TEST_F(AcrobotPlantTests, EvalContinuousStateOutputPort) {
   // The default context gets initialized by a call to SetDefaultState(), which
   // for a MultibodyPlant sets all revolute joints to have zero angles and zero
   // angular velocity.
-  unique_ptr<systems::Context<double>> context =
-      plant_->CreateDefaultContext();
+  unique_ptr<systems::Context<double>> diagram_context =
+      diagram_->CreateDefaultContext();
+  Context<double>& context =
+      plant_->GetMyMutableContextFromRoot(diagram_context.get());
 
   // Set some non-zero state:
-  shoulder_->set_angle(context.get(), M_PI / 3.0);
-  elbow_->set_angle(context.get(), -0.2);
-  shoulder_->set_angular_rate(context.get(), -0.5);
-  elbow_->set_angular_rate(context.get(), 2.5);
+  shoulder_->set_angle(&context, M_PI / 3.0);
+  elbow_->set_angle(&context, -0.2);
+  shoulder_->set_angular_rate(&context, -0.5);
+  elbow_->set_angular_rate(&context, 2.5);
 
   unique_ptr<AbstractValue> state_value =
       plant_->get_state_output_port().Allocate();
@@ -1462,23 +1597,58 @@ TEST_F(AcrobotPlantTests, EvalContinuousStateOutputPort) {
   EXPECT_EQ(state_out.size(), plant_->num_multibody_states());
 
   // Compute the poses for each geometry in the model.
-  plant_->get_state_output_port().Calc(*context, state_value.get());
+  plant_->get_state_output_port().Calc(context, state_value.get());
 
   // Get continuous state_out from context.
-  const VectorBase<double>& state = context->get_continuous_state_vector();
+  const VectorBase<double>& state = context.get_continuous_state_vector();
 
   // Verify state_out indeed matches state.
   EXPECT_EQ(state_out.CopyToVector(), state.CopyToVector());
+
+  // Now calculate accelerations and make sure they show up on the
+  // all-vdot port and on the appropriate model instance port.
+
+  plant_->get_actuation_input_port().FixValue(&context, 0.0);
+  // Time derivatives includes both qdot and vdot.
+  const auto& derivs = plant_->EvalTimeDerivatives(context);
+  const auto& vdot = derivs.get_generalized_velocity();
+  EXPECT_EQ(vdot.size(), plant_->num_velocities());
+  const auto& accel = plant_->get_generalized_acceleration_output_port()
+      .Eval<BasicVector<double>>(context);
+  EXPECT_EQ(accel.size(), plant_->num_velocities());
+  EXPECT_EQ(accel.CopyToVector(), vdot.CopyToVector());
+
+  // All the elements should be in the same model instance, so just ask one.
+  const ModelInstanceIndex instance = shoulder_->model_instance();
+  const auto& accel_instance =
+      plant_->get_generalized_acceleration_output_port(instance)
+      .Eval<BasicVector<double>>(context);
+  EXPECT_EQ(accel_instance.size(), plant_->num_velocities());
+  EXPECT_EQ(accel_instance.CopyToVector(), vdot.CopyToVector());
+
+  // Check that unused model instance ports are present and produce 0-length
+  // results.
+  const auto& accel_default_instance =
+      plant_->get_generalized_acceleration_output_port(default_model_instance())
+          .Eval<BasicVector<double>>(context);
+  EXPECT_EQ(accel_default_instance.size(), 0);
+
+  const auto& state_world_instance =
+      plant_->get_state_output_port(world_model_instance())
+          .Eval<BasicVector<double>>(context);
+  EXPECT_EQ(state_world_instance.size(), 0);
 }
 
-GTEST_TEST(MultibodyPlantTest, MapVelocityToQdotAndBack) {
-  MultibodyPlant<double> plant;
-  // This test is purely kinematic. Therefore we leave the spatial inertia
-  // initialized to garbage. It should not affect the results.
+// Helper function for the two v-to-qdot and qdot-to-v tests.
+void InitializePlantAndContextForVelocityToQDotMapping(
+    MultibodyPlant<double>* plant, std::unique_ptr<Context<double>>* context) {
+  // This is used in purely kinematic tests. Therefore we leave the spatial
+  // inertia initialized to garbage. It should not affect the results.
   const RigidBody<double>& body =
-      plant.AddRigidBody("FreeBody", SpatialInertia<double>());
-  plant.Finalize();
-  unique_ptr<Context<double>> context = plant.CreateDefaultContext();
+      plant->AddRigidBody("FreeBody", SpatialInertia<double>());
+  plant->Finalize();
+
+  *context = plant->CreateDefaultContext();
 
   // Set an arbitrary pose of the body in the world.
   const Vector3d p_WB(1, 2, 3);  // Position in world.
@@ -1487,12 +1657,32 @@ GTEST_TEST(MultibodyPlantTest, MapVelocityToQdotAndBack) {
        2.0 * Vector3d::UnitY() +
        3.0 * Vector3d::UnitZ()).normalized();
   const math::RigidTransformd X_WB(AngleAxisd(M_PI / 3.0, axis_W), p_WB);
-  plant.SetFreeBodyPose(context.get(), body, X_WB);
+  plant->SetFreeBodyPose(context->get(), body, X_WB);
 
   // Set an arbitrary, non-zero, spatial velocity of B in W.
   const SpatialVelocity<double> V_WB(Vector3d(1.0, 2.0, 3.0),
                                      Vector3d(-1.0, 4.0, -0.5));
-  plant.SetFreeBodySpatialVelocity(context.get(), body, V_WB);
+  plant->SetFreeBodySpatialVelocity(context->get(), body, V_WB);
+}
+
+// Tests the qdot-to-v mapping when all objects in the world are fixed (have
+// no degrees-of-freedom).
+GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackFixedWorld) {
+  MultibodyPlant<double> plant(0.0);
+  test::AddFixedObjectsToPlant(&plant);
+  plant.Finalize();
+  unique_ptr<Context<double>> context = plant.CreateDefaultContext();
+
+  // Make sure that the mapping functions do not throw.
+  BasicVector<double> qdot(0), v(0);
+  ASSERT_NO_THROW(plant.MapVelocityToQDot(*context, v, &qdot));
+  ASSERT_NO_THROW(plant.MapQDotToVelocity(*context, qdot, &v));
+}
+
+GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackContinuous) {
+  MultibodyPlant<double> plant(0.0);
+  unique_ptr<Context<double>> context;
+  InitializePlantAndContextForVelocityToQDotMapping(&plant, &context);
 
   // Use of MultibodyPlant's mapping to convert generalized velocities to time
   // derivatives of generalized coordinates.
@@ -1501,6 +1691,31 @@ GTEST_TEST(MultibodyPlantTest, MapVelocityToQdotAndBack) {
   ASSERT_EQ(qdot.size(), 7);
   ASSERT_EQ(v.size(), 6);
   v.SetFrom(context->get_continuous_state().get_generalized_velocity());
+  plant.MapVelocityToQDot(*context, v, &qdot);
+
+  // Mapping from qdot back to v should result in the original vector of
+  // generalized velocities. Verify this.
+  BasicVector<double> v_back(plant.num_velocities());
+  plant.MapQDotToVelocity(*context, qdot, &v_back);
+
+  const double kTolerance = 5 * std::numeric_limits<double>::epsilon();
+  EXPECT_TRUE(
+      CompareMatrices(v_back.CopyToVector(), v.CopyToVector(), kTolerance));
+}
+
+GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackDiscrete) {
+  const double time_step = 1e-3;
+  MultibodyPlant<double> plant(time_step);
+  unique_ptr<Context<double>> context;
+  InitializePlantAndContextForVelocityToQDotMapping(&plant, &context);
+
+  // Use of MultibodyPlant's mapping to convert generalized velocities to time
+  // derivatives of generalized coordinates.
+  BasicVector<double> qdot(plant.num_positions());
+  BasicVector<double> v(plant.num_velocities());
+  ASSERT_EQ(qdot.size(), 7);
+  ASSERT_EQ(v.size(), 6);
+  v.SetFromVector(plant.GetVelocities(*context));
   plant.MapVelocityToQDot(*context, v, &qdot);
 
   // Mapping from qdot back to v should result in the original vector of
@@ -1535,7 +1750,7 @@ class SplitPendulum : public ::testing::Test {
   }
 
  protected:
-  MultibodyPlant<double> plant_;
+  MultibodyPlant<double> plant_{0.0};
   const RevoluteJoint<double>* pin_{nullptr};
   unique_ptr<Context<double>> context_;
 };
@@ -1566,12 +1781,33 @@ TEST_F(SplitPendulum, MassMatrix) {
   EXPECT_NEAR(M(0, 0), Io, 1.0e-6);
 }
 
+// Verify that we can obtain the owning MultibodyPlant from one of its
+// MultibodyElements, and that we get a proper error message if we try
+// this for an element that isn't owned by a MultibodyPlant.
+TEST_F(SplitPendulum, GetMultibodyPlantFromElement) {
+  const MultibodyPlant<double>& pins_plant = pin_->GetParentPlant();
+  EXPECT_EQ(&pins_plant, &plant_);
+
+  // Create an element-owning MBTreeSystem that _is not_ an MBPlant.
+  struct MyMBSystem : public internal::MultibodyTreeSystem<double> {
+    MyMBSystem() {
+      rigid_body = &mutable_tree().AddBody<RigidBody>(SpatialInertia<double>());
+      Finalize();
+    }
+    const RigidBody<double>* rigid_body{};
+  } mb_system;
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      mb_system.rigid_body->GetParentPlant(), std::logic_error,
+      ".*multibody element.*not owned by.*MultibodyPlant.*");
+}
+
 // Verifies we can parse link collision geometries and surface friction.
 GTEST_TEST(MultibodyPlantTest, ScalarConversionConstructor) {
   const std::string full_name = drake::FindResourceOrThrow(
       "drake/multibody/parsing/test/"
           "links_with_visuals_and_collisions.sdf");
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   SceneGraph<double> scene_graph;
   Parser(&plant, &scene_graph).AddModelFromFile(full_name);
 
@@ -1900,7 +2136,7 @@ class MultibodyPlantContactJacobianTests : public ::testing::Test {
   }
 
  protected:
-  MultibodyPlant<double> plant_;
+  MultibodyPlant<double> plant_{0.0};
   SceneGraph<double> scene_graph_;
   unique_ptr<Context<double>> context_;
   std::vector<PenetrationAsPointPair<double>> penetrations_;
@@ -1972,7 +2208,7 @@ GTEST_TEST(KukaModel, JointIndexes) {
       "drake/manipulation/models/iiwa_description/sdf/"
           "iiwa14_no_collision.sdf";
 
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   Parser(&plant).AddModelFromFile(FindResourceOrThrow(kSdfPath));
   const auto& base_link_frame = plant.GetFrameByName("iiwa_link_0");
   const Joint<double>& weld = plant.WeldFrames(
@@ -2064,9 +2300,9 @@ class KukaArmTest : public ::testing::TestWithParam<double> {
                            plant_->GetFrameByName("iiwa_link_0"));
     plant_->Finalize();
 
-    // Only joint reaction forces feedthrough, for either continuous or
-    // discrete plants.
-    EXPECT_TRUE(OnlyJointReactionForcesFeedthrough(*plant_));
+    // Only accelerations and joint reaction forces feedthrough, for either
+    // continuous or discrete plants.
+    EXPECT_TRUE(OnlyAccelerationAndReactionPortsFeedthrough(*plant_));
 
     EXPECT_EQ(plant_->num_positions(), 7);
     EXPECT_EQ(plant_->num_velocities(), 7);
@@ -2188,6 +2424,11 @@ TEST_P(KukaArmTest, InstanceStateAccess) {
 
   EXPECT_EQ(plant_->num_positions(), 14);
   EXPECT_EQ(plant_->num_velocities(), 14);
+  EXPECT_EQ(plant_->num_multibody_states(), 28);
+
+  EXPECT_EQ(plant_->num_positions(arm2), 7);
+  EXPECT_EQ(plant_->num_velocities(arm2), 7);
+  EXPECT_EQ(plant_->num_multibody_states(arm2), 14);
 
   // Re-create the context.
   context_ = plant_->CreateDefaultContext();
@@ -2246,7 +2487,7 @@ INSTANTIATE_TEST_SUITE_P(
 GTEST_TEST(StateSelection, JointHasNoActuator) {
   const std::string file_name =
       "drake/multibody/benchmarks/acrobot/acrobot.sdf";
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   Parser(&plant).AddModelFromFile(FindResourceOrThrow(file_name));
   plant.Finalize();
 
@@ -2277,7 +2518,7 @@ GTEST_TEST(StateSelection, KukaWithSimpleGripper) {
   // the end effector. The purpose of having this floating model is to unit test
   // the methods for making state/actuation selector matrices for more complex
   // cases when we have floating robots in the model.
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   Parser parser(&plant);
   const ModelInstanceIndex arm_model =
       parser.AddModelFromFile(FindResourceOrThrow(kArmSdfPath));
@@ -2497,7 +2738,7 @@ GTEST_TEST(StateSelection, FloatingBodies) {
   const std::string mug_sdf_path = FindResourceOrThrow(
       "drake/examples/simple_gripper/simple_mug.sdf");
 
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
 
   // Load a model of a table for the robot.
   Parser parser(&plant);
@@ -2593,7 +2834,7 @@ GTEST_TEST(StateSelection, FloatingBodies) {
 
 GTEST_TEST(SetRandomTest, FloatingBodies) {
   // Create a model that contains a single body.
-  MultibodyPlant<double> plant;
+  MultibodyPlant<double> plant(0.0);
   const Body<double>& body =
       plant.AddRigidBody("LoneBody", SpatialInertia<double>());
   plant.Finalize();

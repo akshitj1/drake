@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "drake/attic/warning.h"
 #include "drake/common/autodiff.h"
 #include "drake/common/constants.h"
 #include "drake/common/eigen_types.h"
@@ -138,6 +139,9 @@ template <typename T>
 RigidBodyTree<T>::RigidBodyTree()
     : collision_model_(drake::multibody::collision::newModel()) {
 #pragma GCC diagnostic pop  // pop -Wdeprecated-declarations
+
+  drake::internal::WarnOnceAboutAtticCode();
+
   // Sets the gravity vector.
   a_grav << 0, 0, 0, 0, 0, -9.81;
 
@@ -800,18 +804,6 @@ string RigidBodyTree<T>::get_velocity_name(int velocity_num) const {
 
   return bodies_[body_index]->getJoint().get_velocity_name(
       velocity_num - bodies_[body_index]->get_velocity_start_index());
-}
-
-// TODO(liang.fok) Remove this deprecated method prior to release 1.0.
-template <typename T>
-std::string RigidBodyTree<T>::getPositionName(int position_num) const {
-  return get_position_name(position_num);
-}
-
-// TODO(liang.fok) Remove this deprecated method prior to release 1.0.
-template <typename T>
-std::string RigidBodyTree<T>::getVelocityName(int velocity_num) const {
-  return get_velocity_name(velocity_num);
 }
 
 template <typename T>
@@ -2004,14 +1996,6 @@ std::vector<int> RigidBodyTree<T>::FindAncestorBodies(int body_index) const {
   return ancestor_bodies;
 }
 
-// TODO(liang.fok) Remove this deprecated method prior to Release 1.0.
-template <typename T>
-// TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
-void RigidBodyTree<T>::findAncestorBodies(std::vector<int>& ancestor_bodies,
-                                          int body_idx) const {
-  FindAncestorBodies(body_idx, &ancestor_bodies);
-}
-
 template <typename T>
 KinematicPath RigidBodyTree<T>::findKinematicPath(
     int start_body_or_frame_idx, int end_body_or_frame_idx) const {
@@ -2986,13 +2970,6 @@ std::vector<const RigidBody<T>*> RigidBodyTree<T>::FindModelInstanceBodies(
 }
 
 template <typename T>
-RigidBody<T>* RigidBodyTree<T>::findLink(const std::string& link_name,
-                                         const std::string& model_name,
-                                         int model_instance_id) const {
-  return FindBody(link_name, model_name, model_instance_id);
-}
-
-template <typename T>
 shared_ptr<RigidBodyFrame<T>> RigidBodyTree<T>::findFrame(
     const std::string& frame_name, int model_instance_id) const {
   std::string frame_name_lower = frame_name;
@@ -3093,13 +3070,6 @@ std::vector<int> RigidBodyTree<T>::FindChildrenOfBody(
   return children_indexes;
 }
 
-// TODO(liang.fok) Remove this method prior to Release 1.0.
-template <typename T>
-int RigidBodyTree<T>::findLinkId(const std::string& link_name,
-                                 int model_instance_id) const {
-  return FindBodyIndex(link_name, model_instance_id);
-}
-
 template <typename T>
 RigidBody<T>* RigidBodyTree<T>::FindChildBodyOfJoint(
     const std::string& joint_name, int model_instance_id) const {
@@ -3184,29 +3154,9 @@ RigidBody<T>* RigidBodyTree<T>::get_mutable_body(int body_index) {
   return bodies_[body_index].get();
 }
 
-// TODO(liang.fok) Remove this method prior to Release 1.0.
-template <typename T>
-int RigidBodyTree<T>::get_number_of_bodies() const {
-  return get_num_bodies();
-}
-
 template <typename T>
 int RigidBodyTree<T>::get_num_frames() const {
   return static_cast<int>(frames_.size());
-}
-
-// TODO(liang.fok) Remove this method prior to Release 1.0.
-template <typename T>
-RigidBody<T>* RigidBodyTree<T>::findJoint(const std::string& joint_name,
-                                          int model_id) const {
-  return FindChildBodyOfJoint(joint_name, model_id);
-}
-
-// TODO(liang.fok) Remove this method prior to Release 1.0.
-template <typename T>
-int RigidBodyTree<T>::findJointId(const std::string& joint_name,
-                                  int model_id) const {
-  return FindIndexOfChildBodyOfJoint(joint_name, model_id);
 }
 
 template <typename T>
@@ -3491,27 +3441,9 @@ RigidBody<T>* RigidBodyTree<T>::add_rigid_body(
   return bodies_.back().get();
 }
 
-// TODO(liang.fok) Remove this deprecated method prior to release 1.0.
-template <typename T>
-int RigidBodyTree<T>::number_of_positions() const {
-  return get_num_positions();
-}
-
-// TODO(liang.fok) Remove this deprecated method prior to release 1.0.
-template <typename T>
-int RigidBodyTree<T>::number_of_velocities() const {
-  return get_num_velocities();
-}
-
 template <typename T>
 int RigidBodyTree<T>::add_model_instance() {
   return num_model_instances_++;
-}
-
-// TODO(liang.fok) Remove this deprecated method prior to release 1.0.
-template <typename T>
-int RigidBodyTree<T>::get_number_of_model_instances() const {
-  return get_num_model_instances();
 }
 
 template <typename T>

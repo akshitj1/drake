@@ -35,7 +35,7 @@ template <typename T> class SpatialVelocity;
 /// For a more detailed introduction on spatial vectors and the monogram
 /// notation please refer to section @ref multibody_spatial_vectors.
 ///
-/// @tparam T The underlying scalar type. Must be a valid Eigen scalar.
+/// @tparam_default_scalar
 template <typename T>
 class SpatialForce : public SpatialVector<SpatialForce, T> {
   // We need the fully qualified class name below for the clang compiler to
@@ -142,40 +142,25 @@ class SpatialForce : public SpatialVector<SpatialForce, T> {
     return SpatialForce<T>(*this).ShiftInPlace(p_BpBq_E);
   }
 
-  /// Adds in a spatial force to `this` spatial force.
-  /// @param[in] F_Sp_E
-  ///   A spatial force to be added to `this` spatial force. It must be on the
-  ///   same system or body S on which `this` spatial force is applied and at
-  ///   the same point P as `this` spatial force, and expressed in the
-  ///   same frame E.
-  /// @returns
-  ///   A reference to `this` spatial force, which has been updated to include
-  ///   the given spatial force `F_Sp_E`.
-  ///
-  /// @warning This operation is only valid if both spatial forces are applied
-  /// on the same system or body S, at the same point P and expressed in the
-  /// same frame E.
-  SpatialForce<T>& operator+=(const SpatialForce<T>& F_Sp_E) {
-    this->get_coeffs() += F_Sp_E.get_coeffs();
-    return *this;
-  }
-
-  /// Subtracts a spatial force from `this` spatial force.
-  /// @param[in] F_Sp_E
-  ///   A spatial force to be subtracted from `this` spatial force. It must be
-  ///   on the same system or body S on which `this` spatial force is applied
-  ///   and at the same point P as `this` spatial force, and expressed in the
-  ///   same frame E.
-  /// @returns
-  ///   A reference to `this` spatial force, which has been updated to exclude
-  ///   the given spatial force `F_Sp_E`.
-  ///
-  /// @warning This operation is only valid if both spatial forces are applied
-  /// on the same system or body S, at the same point P and expressed in the
-  /// same frame E.
-  SpatialForce<T>& operator-=(const SpatialForce<T>& F_Sp_E) {
-    this->get_coeffs() -= F_Sp_E.get_coeffs();
-    return *this;
+  /// Performs a rigid shift of each column of `F_P_E` as if they contained the
+  /// 6 components of a spatial force. It is assumed the first three elements of
+  /// each column store the rotational component while the last three elements
+  /// store the translational component.
+  /// Given the position of Q in P, each spatial force `F_P_E` about P is
+  /// rigidly shifted to point Q, see Shift(). All quantities are expressed in a
+  /// same common frame E.
+  /// F_Q_E must be non-null and point to a matrix of 6 rows and as many columns
+  /// as input F_P_E, otherwise an assertion failure is triggered.
+  /// @note Aliasing is allowed. That is, F_Q_E can point to the same memory
+  /// referenced by F_P_E, resulting in an in-place operation.
+  static void Shift(const Eigen::Ref<const Matrix6X<T>>& F_P_E,
+                    const Vector3<T>& p_PQ_E, EigenPtr<Matrix6X<T>> F_Q_E) {
+    DRAKE_DEMAND(F_Q_E != nullptr);
+    DRAKE_DEMAND(F_Q_E->cols() == F_P_E.cols());
+    F_Q_E->template topRows<3>() =
+        F_P_E.template topRows<3>() +
+        F_P_E.template bottomRows<3>().colwise().cross(p_PQ_E);
+    F_Q_E->template bottomRows<3>() = F_P_E.template bottomRows<3>();
   }
 
   /// Given `this` spatial force `F_Bp_E` applied at point P of body B and
@@ -200,10 +185,27 @@ class SpatialForce : public SpatialVector<SpatialForce, T> {
 ///   The resultant spatial force on system or body S from combining `F1_Sp_E`
 ///   and `F2_Sp_E`, applied at the same point P and in the same expressed-in
 ///   frame E as the operand spatial forces.
+///
+/// @relates SpatialForce
 template <typename T>
-inline SpatialForce<T> operator+(
-    const SpatialForce<T>& F1_Sp_E, const SpatialForce<T>& F2_Sp_E) {
-  return SpatialForce<T>(F1_Sp_E.get_coeffs() + F2_Sp_E.get_coeffs());
+inline SpatialForce<T> operator+(const SpatialForce<T>& F1_Sp_E,
+                                 const SpatialForce<T>& F2_Sp_E) {
+  // N.B. We use SpatialVector's implementation, though we provide the overload
+  // for specific documentation purposes.
+  return SpatialForce<T>(F1_Sp_E) += F2_Sp_E;
+}
+
+/// Subtracts spatial force `F2_Sp_E ` from `F1_Sp_E`. Both spatial forces act
+/// on the same system or body S, at point P and are expressed in the same frame
+/// E.
+///
+/// @relates SpatialForce
+template <typename T>
+inline SpatialForce<T> operator-(const SpatialForce<T>& F1_Sp_E,
+                                 const SpatialForce<T>& F2_Sp_E) {
+  // N.B. We use SpatialVector's implementation, though we provide the overload
+  // for specific documentation purposes.
+  return SpatialForce<T>(F1_Sp_E) -= F2_Sp_E;
 }
 
 }  // namespace multibody

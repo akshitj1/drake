@@ -2,12 +2,16 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include <glib.h>
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
+#include "drake/common/scope_exit.h"
 
 namespace drake {
 namespace lcm {
@@ -47,6 +51,7 @@ class DrakeLcm::Impl {
   std::string lcm_url_;
   ::lcm::LCM lcm_;
   std::vector<std::weak_ptr<DrakeSubscription>> subscriptions_;
+  std::string handle_subscriptions_error_message_;
 };
 
 DrakeLcm::DrakeLcm() : DrakeLcm(std::string{}) {}
@@ -90,6 +95,11 @@ class DrakeSubscription final : public DrakeSubscriptionInterface {
       HandlerFunction handler) {
     DRAKE_DEMAND(native_instance != nullptr);
 
+    // The argument to subscribeFunction is regex (not a string literal), so
+    // we'll need to escape the channel name before calling subscribeFunction.
+    char* const channel_regex = g_regex_escape_string(channel.c_str(), -1);
+    ScopeExit guard([channel_regex](){ g_free(channel_regex); });
+
     // Create the result.
     auto result = std::make_shared<DrakeSubscription>();
     result->native_instance_ = native_instance;
@@ -97,7 +107,7 @@ class DrakeSubscription final : public DrakeSubscriptionInterface {
     result->weak_self_reference_ = result;
     result->strong_self_reference_ = result;
     result->native_subscription_ = native_instance->subscribeFunction(
-      channel, &DrakeSubscription::NativeCallback, result.get());
+        channel_regex, &DrakeSubscription::NativeCallback, result.get());
     result->native_subscription_->setQueueCapacity(1);
 
     // Sanity checks.  (The use_count will be 2 because both 'result' and
@@ -224,7 +234,21 @@ int DrakeLcm::HandleSubscriptions(int timeout_millis) {
     DRAKE_DEMAND(zero_or_one == 1);
     ++total_messages;
   }
+  // If a handler posted an error, raise it now that we're done with LCM C code.
+  if (!impl_->handle_subscriptions_error_message_.empty()) {
+    std::string message = std::move(impl_->handle_subscriptions_error_message_);
+    impl_->handle_subscriptions_error_message_ = {};
+    throw std::runtime_error(std::move(message));
+  }
   return total_messages;
+}
+
+void DrakeLcm::OnHandleSubscriptionsError(const std::string& error_message) {
+  DRAKE_DEMAND(!error_message.empty());
+  // Stash the exception message for later.  This is "last one wins" if there
+  // are multiple errors.  We can only throw one anyway, and doesn't matter
+  // which one we throw.
+  impl_->handle_subscriptions_error_message_ = error_message;
 }
 
 DrakeLcm::~DrakeLcm() {

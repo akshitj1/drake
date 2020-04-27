@@ -13,7 +13,8 @@
 /.project/
 /.settings/
 /.clwb/
-.vscode/*
+/.vscode
+/.history
 
 # (Possible) CMake build artifacts
 /build/

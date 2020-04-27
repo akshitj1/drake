@@ -9,11 +9,15 @@ import unittest
 import numpy as np
 
 from pydrake.autodiffutils import AutoDiffXd
+from pydrake.common import RandomGenerator
+from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.examples.pendulum import PendulumPlant
 from pydrake.examples.rimless_wheel import RimlessWheel
 from pydrake.symbolic import Expression
 from pydrake.systems.analysis import (
+    GetIntegrationSchemes,
     IntegratorBase, IntegratorBase_,
+    ResetIntegratorFromFlags,
     RungeKutta2Integrator, RungeKutta3Integrator,
     SimulatorStatus, Simulator, Simulator_,
     )
@@ -111,6 +115,10 @@ class TestGeneral(unittest.TestCase):
             context.get_continuous_state_vector(), VectorBase)
         self.assertIsInstance(
             context.get_mutable_continuous_state_vector(), VectorBase)
+        system.SetDefaultContext(context)
+
+        # Check random context method.
+        system.SetRandomContext(context=context, generator=RandomGenerator())
 
         context = system.CreateDefaultContext()
         self.assertIsInstance(
@@ -162,11 +170,15 @@ class TestGeneral(unittest.TestCase):
         x = np.array([0.1, 0.2])
         context.SetContinuousState(x)
         np.testing.assert_equal(
+            context.get_continuous_state().CopyToVector(), x)
+        np.testing.assert_equal(
             context.get_continuous_state_vector().CopyToVector(), x)
         context.SetTimeAndContinuousState(0.3, 2*x)
         np.testing.assert_equal(context.get_time(), 0.3)
         np.testing.assert_equal(
             context.get_continuous_state_vector().CopyToVector(), 2*x)
+        self.assertNotEqual(pendulum.EvalPotentialEnergy(context=context), 0)
+        self.assertNotEqual(pendulum.EvalKineticEnergy(context=context), 0)
 
         # RimlessWheel has a single discrete variable and a bool abstract
         # variable.
@@ -226,11 +238,16 @@ class TestGeneral(unittest.TestCase):
         self.assertIsInstance(periodic_data.Clone(), PeriodicEventData)
         periodic_data.period_sec()
         periodic_data.offset_sec()
+        is_diff_eq, period = system1.IsDifferenceEquationSystem()
+        self.assertTrue(is_diff_eq)
+        self.assertEqual(period, periodic_data.period_sec())
 
         # Simple continuous-time system.
         system2 = LinearSystem(A=[1], B=[1], C=[1], D=[1], time_period=0.0)
         periodic_data = system2.GetUniquePeriodicDiscreteUpdateAttribute()
         self.assertIsNone(periodic_data)
+        is_diff_eq, period = system2.IsDifferenceEquationSystem()
+        self.assertFalse(is_diff_eq)
 
     def test_instantiations(self):
         # Quick check of instantiations for given types.
@@ -329,6 +346,8 @@ class TestGeneral(unittest.TestCase):
                             simulator.get_mutable_context())
             check_output(simulator.get_context())
             simulator.AdvanceTo(1)
+            self.assertEqual(simulator.get_target_realtime_rate(), 0)
+            self.assertTrue(simulator.get_actual_realtime_rate() > 0.)
 
             # Create simulator specifying context.
             context = system.CreateDefaultContext()
@@ -404,7 +423,7 @@ class TestGeneral(unittest.TestCase):
         diagram.get_input_port(2).FixValue(context, input2)
 
         # Test __str__ methods.
-        self.assertRegexpMatches(str(context), "integrator")
+        self.assertRegex(str(context), "integrator")
         self.assertEqual(str(input2), "[0.003, 0.004, 0.005]")
 
         # Initialize integrator states.
@@ -435,6 +454,24 @@ class TestGeneral(unittest.TestCase):
             xc_expected = (float(i) / (n - 1) * (xc_final - xc_initial) +
                            xc_initial)
             self.assertTrue(np.allclose(xc, xc_expected))
+
+    def test_simulator_context_manipulation(self):
+        system = ConstantVectorSource([1])
+        # Use default-constructed context.
+        simulator = Simulator(system)
+        self.assertTrue(simulator.has_context())
+        context_default = simulator.get_mutable_context()
+        # WARNING: Once we call `simulator.reset_context()`, it will delete the
+        # context it currently owns, which is `context_default` in this case.
+        # BE CAREFUL IN SITUATIONS LIKE THIS!
+        # TODO(eric.cousineau): Bind `release_context()`, or migrate context
+        # usage to use `shared_ptr`.
+        context = system.CreateDefaultContext()
+        simulator.reset_context(context)
+        self.assertIs(context, simulator.get_mutable_context())
+        # WARNING: This will also invalidate `context`. Be careful!
+        simulator.reset_context(None)
+        self.assertFalse(simulator.has_context())
 
     def test_simulator_integrator_manipulation(self):
         system = ConstantVectorSource([1])
@@ -474,19 +511,33 @@ class TestGeneral(unittest.TestCase):
             system=system, max_step_size=0.01)
         test_integrator = RungeKutta3Integrator(system=system)
 
-        # Test simulator's reset_integrator,
-        # and also the full constructors for
+        # Test simulator's reset_integrator, and also the full constructors for
         # all integrator types.
-        simulator.reset_integrator(
-            RungeKutta2Integrator(
-                system=system,
-                max_step_size=0.01,
-                context=simulator.get_mutable_context()))
+        rk2 = RungeKutta2Integrator(
+            system=system,
+            max_step_size=0.01,
+            context=simulator.get_mutable_context())
+        with catch_drake_warnings(expected_count=1):
+            # TODO(12873) We need an API for this that isn't deprecated.
+            simulator.reset_integrator(rk2)
 
-        simulator.reset_integrator(
-            RungeKutta3Integrator(
-                system=system,
-                context=simulator.get_mutable_context()))
+        rk3 = RungeKutta3Integrator(
+            system=system,
+            context=simulator.get_mutable_context())
+        with catch_drake_warnings(expected_count=1):
+            # TODO(12873) We need an API for this that isn't deprecated.
+            simulator.reset_integrator(rk3)
+
+    def test_simulator_flags(self):
+        system = ConstantVectorSource([1])
+        simulator = Simulator(system)
+
+        ResetIntegratorFromFlags(simulator, "runge_kutta2", 0.00123)
+        integrator = simulator.get_integrator()
+        self.assertEqual(type(integrator), RungeKutta2Integrator)
+        self.assertEqual(integrator.get_maximum_step_size(), 0.00123)
+
+        self.assertGreater(len(GetIntegrationSchemes()), 5)
 
     def test_abstract_output_port_eval(self):
         model_value = AbstractValue.Make("Hello World")
@@ -608,7 +659,7 @@ class TestGeneral(unittest.TestCase):
         self.assertEqual(type(value), int)
         self.assertEqual(value, 1)
 
-        # Fixing to an explicitly-typed Value instantation is an error ...
+        # Fixing to an explicitly-typed Value instantiation is an error ...
         with self.assertRaises(RuntimeError):
             input_port.FixValue(context, AbstractValue.Make("string"))
         # ... but implicit typing works just fine.
