@@ -1,8 +1,5 @@
 #pragma once
 #include <cmath>
-#include <memory>
-
-#include <Eigen/Core>
 
 #include "drake/common/default_scalars.h"
 #include "drake/examples/tailsitter/gen/tailsitter_input.h"
@@ -160,99 +157,11 @@ class Tailsitter final : public systems::LeafSystem<T> {
   static T get_angle(const Vector2<T>& x) { return atan2(x(1), x(0)); }
 
   static T get_norm_squared(const Vector2<T>& x) {
-    return pow(x(0), 2) + pow(x(1), 2);
+    return x(0) * x(0) + x(1) * x(1);
+    // todo: why below does not works?
+    // return pow(x(0), 2) + pow(x(1), 2);
   }
 };
-
-/*
-template <typename T>
-class Body {
-  BodyState state;
-  virtual void get_dyanmics(T& x_ddot, T& z_ddot, T& theta_ddot);
-};
-
-template <typename T>
-class BodyState {
- public:
-  T x, z, theta, x_dot, z_dot, theta_dot;
-};
-
-template <typename T>
-class TailsitterBody: Body {
-  Link wing;
-  Link elevon;
-  const T kTailJointL;
-  T kMass;
-  T kIntertia;
-  const double kG = 9.81;
-  void get_dymamics(T& x_ddot, T& z_ddot, T& theta_ddot) {
-    // newtonian
-    Vector2<T> F_w_I = rotate(wing.get_force(), theta);
-    Vector2<T> F_e_I = rotate(elevon.get_force(), theta + phi);
-    Vector2<T> F_g_I = Vector2<T>(0, -kMass * kG);
-    Vector2<T> pos_ddot = (F_w_I + F_e_I + F_g_I) / kMass;
-    x_ddot = pos_ddot(0);
-    z_ddot = pos_ddot(1);
-
-    // euler
-    T T_w = Vector2(wing.radial_distance, 0).cross(F_w_I);
-    T T_e =
-        Vector2(-kTailJointL, 0) +
-        rotate(Vector2<T>(-tail.radial_distance, 0), tail.theta).cross(F_e_I);
-    theta_ddot = (T_w + T_e) / kIntertia;
-  }
-};
-
-template <typename T>
-class Joint {
- private:
-  const Flatplate<T> plate;
-  const Body<T> parent;
-
- public:
-  // w.r.t to parent body
-  T radial_distance;
-  Vector2<T> theta, theta_dot;
-
-  Vector2<T> get_force(const Vector2<T>& parent_vel,
-                       const T parent_angular_vel) {
-    Vector2<T> plate_vel =  // self vel only has angular component
-        parent_vel + rotate(radial_distance * parent_angular_vel +
-                                radial_distance * theta_dot,
-                            M_PI / 2 + theta);
-    return plate.get_aero_force(plate_vel);
-  }
-};
-
-template <typename T>
-class FlatPlate: Body {
- private:
-  const double kAtmDensity = 1.204, surface_area;
-
- public:
-  FlatPlate<T>(const double& surface_area_) : surface_area(surface_area_) {}
-
- public:
-  Vector2<T> get_aero_force(const Vector2<T>& wind_vel) {
-    T attack_angle = atan2(wind_vel(1), wind_vel(0));
-    // matlab impelementation ignores (sin + cos) term??
-    T aero_normal_force = 1.0 / 2 * dynamics_pressure() * surface_area *
-                          (lift_coeff(attack_angle) + drag_coeff(attack_angle));
-    // no skin friction considered
-    return Vector2<T>(0, aero_normal_force);
-  }
-
- private:
-  T dynamics_pressure(const Vector2<T>& wind_vel) {
-    T wind_speed_2 = pow(wind_vel(0), 2) + pow(wind_vel(1), 2);
-    return 1 / 2.0 * kAtmDensity * wind_speed_2;
-  }
-
-  // flat plate theory
-  T lift_coeff(T angle) const { return 2 * sin(alpha) * cos(alpha); }
-  T drag_coeff(T angle) const { return 2 * pow(sin(angle), 2); }
-};
-*/
 }  // namespace tailsitter
 }  // namespace examples
 

@@ -219,7 +219,7 @@ def setup_pkg_config_repository(repository_ctx):
             hdrs_path.get_child(symlink_dest),
         )
         includes += ["include/" + symlink_dest]
-    hdrs_prologue = "glob([\"include/**/*.h\", \"include/**/*.hpp\"]) + "
+    hdrs_prologue = "glob([\"include/**\"]) + "
 
     # Write out the BUILD.bazel file.
     substitutions = {

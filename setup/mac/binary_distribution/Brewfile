@@ -33,4 +33,4 @@ brew 'robotlocomotion/director/vtk@8.2'
 brew 'yaml-cpp'
 brew 'zeromq'
 
-mas 'Xcode', id: 497799835 unless File.exist? '/Applications/Xcode.app'
+# mas 'Xcode', id: 497799835 unless File.exist? '/Applications/Xcode.app'

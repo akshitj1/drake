@@ -1434,9 +1434,6 @@ bool IsAffine(const Eigen::Ref<const MatrixX<Expression>>& m,
 /// @note If `m` is an empty matrix, it returns true.
 bool IsAffine(const Eigen::Ref<const MatrixX<Expression>>& m);
 
-Expression TaylorExpand(const Expression& f, const Environment& a, int order,
-                        bool in_error_coordinates);
-
 /// Returns the distinct variables in the matrix of expressions.
 Variables GetDistinctVariables(const Eigen::Ref<const MatrixX<Expression>>& v);
 

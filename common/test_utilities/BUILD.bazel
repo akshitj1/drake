@@ -144,7 +144,6 @@ drake_cc_library(
     deps = [
         "//common:add_text_logging_gflags",
         "@gtest//:without_main",
-	"@gflags",
     ],
 )
 

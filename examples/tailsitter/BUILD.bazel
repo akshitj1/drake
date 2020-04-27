@@ -18,15 +18,15 @@ package(
 drake_cc_vector_gen_library(
     name = "tailsitter_vector_types",
     srcs = [
-        "tailsitter_input.named_vector",
-        "tailsitter_state.named_vector",
+        "tailsitter_input_named_vector.yaml",
+        "tailsitter_state_named_vector.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 
 drake_cc_library(
     name = "tailsitter_plant",
-    srcs = [],
+    srcs = ["tailsitter_plant.cc"],
     hdrs = ["tailsitter_plant.h"],
     deps = [
         ":tailsitter_vector_types",
