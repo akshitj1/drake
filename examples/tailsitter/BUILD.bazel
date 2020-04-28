@@ -75,6 +75,7 @@ drake_cc_library(
     deps = [
         ":common",
         ":tailsitter_plant",
+        "//systems/controllers:finite_horizon_linear_quadratic_regulator",
     ],
 )
 

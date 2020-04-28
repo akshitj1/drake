@@ -1,3 +1,4 @@
+#pragma once
 #include <iomanip>
 
 #include "drake/examples/tailsitter/common.h"
