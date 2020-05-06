@@ -30,8 +30,8 @@ namespace {
 //   subject to (V-rho)*x'*x - Lambda*Vdot is SOS.
 // If we cannot confirm negative definiteness, then we must ask instead for
 // Vdot >=0 => V >= rho (or x=0).
-Expression FixedLyapunovConvex(const solvers::VectorXIndeterminate& x,
-                               const Expression& V, const Expression& Vdot) {
+double FixedLyapunovConvex(const solvers::VectorXIndeterminate& x,
+                           const Expression& V, const Expression& Vdot) {
   // Check if the Hessian of Vdot is negative definite.
   Environment env;
   for (int i = 0; i < x.size(); i++) {
@@ -63,9 +63,9 @@ Expression FixedLyapunovConvex(const solvers::VectorXIndeterminate& x,
   if (Vdot_is_locally_negative_definite) {
     // Then "balance" V and Vdot.
     const Eigen::MatrixXd T = math::BalanceQuadraticForms(S, -P);
-    const VectorX<Expression> Tx = T*x;
+    const VectorX<Expression> Tx = T * x;
     Substitution subs;
-    for (int i=0; i<static_cast<int>(x.size()); i++) {
+    for (int i = 0; i < static_cast<int>(x.size()); i++) {
       subs.emplace(x(i), Tx(i));
     }
     V_balanced = Polynomial(V.Substitute(subs));
@@ -106,7 +106,8 @@ Expression FixedLyapunovConvex(const solvers::VectorXIndeterminate& x,
   DRAKE_THROW_UNLESS(result.is_success());
 
   DRAKE_THROW_UNLESS(result.GetSolution(rho) > 0.0);
-  return V / result.GetSolution(rho);
+  return result.GetSolution(rho);
+  // return V / result.GetSolution(rho);
 }
 
 }  // namespace
@@ -151,6 +152,7 @@ Expression RegionOfAttraction(const System<double>& system,
           .CopyToVector();
 
   Expression V;
+  MatrixX<double> P0;
   bool user_provided_lyapunov_candidate =
       !options.lyapunov_candidate.EqualTo(Expression::Zero());
 
@@ -185,11 +187,13 @@ Expression RegionOfAttraction(const System<double>& system,
     const Eigen::MatrixXd Q = Eigen::MatrixXd::Identity(num_states, num_states);
     const Eigen::MatrixXd P = math::RealContinuousLyapunovEquation(A, Q);
     V = x_bar.dot(P * x_bar);
+    P0 = P;
   }
 
   const Expression Vdot = V.Jacobian(x_bar).dot(f);
 
-  V = FixedLyapunovConvex(x_bar, V, Vdot);
+  const double rho = FixedLyapunovConvex(x_bar, V, Vdot);
+  V /= rho;
 
   // Put V back into global coordinates.
   Substitution subs;
@@ -206,6 +210,57 @@ Expression RegionOfAttraction(const System<double>& system,
   V = V.Substitute(subs);
 
   return V;
+}
+
+MatrixX<double> RegionOfAttractionP(const System<double>& system,
+                                    const Context<double>& context) {
+  system.ValidateContext(context);
+  DRAKE_THROW_UNLESS(context.has_only_continuous_state());
+
+  const int num_states = context.num_continuous_states();
+  VectorX<double> x0 = context.get_continuous_state_vector().CopyToVector();
+
+  // Check that x0 is a fixed point.
+  VectorX<double> xdot0 =
+      system.EvalTimeDerivatives(context).get_vector().CopyToVector();
+  DRAKE_THROW_UNLESS(xdot0.template lpNorm<Eigen::Infinity>() <= 1e-14);
+
+  const auto symbolic_system = system.ToSymbolic();
+  const auto symbolic_context = symbolic_system->CreateDefaultContext();
+  // Time and parameters should just be doubles (not Variables).
+  symbolic_context->SetTime(0.0);
+  symbolic_context->get_mutable_parameters().SetFrom(context.get_parameters());
+
+  // Subroutines should create their own programs to avoid incidental
+  // sharing of costs or constraints.  However, we pass x and expect that
+  // sub-programs will use AddIndeterminates(x).
+  MathematicalProgram prog;
+  // Define the relative coordinates: x_bar = x - x0
+  const auto x_bar = prog.NewIndeterminates(num_states, "x");
+
+  Environment x0env;
+  for (int i = 0; i < num_states; i++) {
+    x0env.insert(x_bar(i), 0.0);
+  }
+
+  // Evaluate the dynamics (in relative coordinates).
+  symbolic_context->SetContinuousState(x0 + x_bar);
+  const VectorX<Expression> f =
+      symbolic_system->EvalTimeDerivatives(*symbolic_context)
+          .get_vector()
+          .CopyToVector();
+
+  Expression V;
+
+  // Solve a Lyapunov equation to find a candidate.
+  const Eigen::MatrixXd A = Evaluate(Jacobian(f, x_bar), x0env);
+  const Eigen::MatrixXd Q = Eigen::MatrixXd::Identity(num_states, num_states);
+  const Eigen::MatrixXd P = math::RealContinuousLyapunovEquation(A, Q);
+  V = x_bar.dot(P * x_bar);
+  const Expression Vdot = V.Jacobian(x_bar).dot(f);
+
+  const double rho = FixedLyapunovConvex(x_bar, V, Vdot);
+  return P / rho;
 }
 
 }  // namespace analysis

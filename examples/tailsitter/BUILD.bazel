@@ -79,12 +79,27 @@ drake_cc_library(
     ],
 )
 
+drake_cc_library(
+    name = "trajectory_funnel",
+    srcs = ["trajectory_funnel.h"],
+    deps = [
+        "//common:default_scalars",
+        "//common:essential",
+        "//common/trajectories:piecewise_polynomial",
+        "//systems/analysis:region_of_attraction",
+        "//systems/controllers:finite_horizon_linear_quadratic_regulator",
+        "//systems/framework:leaf_system",
+        "//systems/primitives:linear_system",
+    ],
+)
+
 drake_cc_binary(
     name = "perch_tailsitter",
     srcs = ["perch_tailsitter.cc"],
     deps = [
         ":tailsitter_controller",
         ":tailsitter_plant",
+        ":trajectory_funnel",
         ":trajectory_generator",
         "//systems/analysis:simulator",
         "//systems/framework:diagram_builder",

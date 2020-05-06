@@ -64,6 +64,9 @@ symbolic::Expression RegionOfAttraction(
     const System<double>& system, const Context<double>& context,
     const RegionOfAttractionOptions& options = RegionOfAttractionOptions());
 
+MatrixX<double> RegionOfAttractionP(const System<double>& system,
+                                   const Context<double>& context);
+
 }  // namespace analysis
 }  // namespace systems
 }  // namespace drake

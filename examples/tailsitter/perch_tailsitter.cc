@@ -3,6 +3,7 @@
 #include "drake/examples/tailsitter/common.h"
 #include "drake/examples/tailsitter/tailsitter_controller.h"
 #include "drake/examples/tailsitter/tailsitter_plant.h"
+#include "drake/examples/tailsitter/trajectory_funnel.h"
 #include "drake/examples/tailsitter/trajectory_generator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/controllers/finite_horizon_linear_quadratic_regulator.h"
@@ -48,6 +49,11 @@ void simulate_trajectory(const tailsitter::Trajectory& trajectory) {
       Q, R, lqr_options);
 
   log()->info("lqr S, K matrices computed.");
+
+  log()->info("computing trajectory funnel");
+  systems::analysis::TrajectoryFunnel(*tailsitter, state_opt, input_opt,
+                                      lqr_res);
+  log()->info("Funnel computed");
 
   auto ts_controller =
       builder.AddSystem<TailsitterController>(state_opt, input_opt, lqr_res);
