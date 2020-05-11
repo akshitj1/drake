@@ -24,56 +24,13 @@ using solvers::MathematicalProgram;
 using std::vector;
 using symbolic::Environment;
 using symbolic::Expression;
+using symbolic::Polynomial;
 using symbolic::Substitution;
+using symbolic::TaylorExpand;
 using symbolic::Variable;
 
-typedef MatrixX<symbolic::Polynomial> PolynomialFrame;
-typedef std::vector<symbolic::Polynomial> PolynomialTrajectory;
-
-static symbolic::Polynomial toSymbolicPolynomial(
-    const drake::Polynomial<double>& p, const symbolic::Variable& t_sy) {
-  symbolic::Polynomial p_sy;
-  // polynomial is sum of its monomials and stores monomials list in vector
-  // monomials are coeff, and terms(vector)
-  // terms is var id(int) and int power(int)
-  // var id is generated from var name string
-  // for our use case we only have to deal with time variable t(name "t").
-  const std::vector<drake::Polynomial<double>::Monomial> monomials =
-      p.GetMonomials();
-  const drake::Polynomial<double>::VarType t =
-      drake::Polynomial<double>::VariableNameToId("t");
-  for (drake::Polynomial<double>::Monomial m : monomials) {
-    assert(m.terms.size() <= 1);
-    if (m.terms.size()) {
-      const drake::Polynomial<double>::Term term = m.terms[0];
-      assert(term.var == t);
-      symbolic::Monomial m_sy(t_sy, term.power);
-      p_sy += m.coefficient * m_sy;
-    } else {
-      p_sy += m.coefficient;
-    }
-  }
-  return p_sy;
-}
-static MatrixX<symbolic::Polynomial> toSymbolicPolynomial(
-    const MatrixX<drake::Polynomial<double>>& p_mat,
-    const symbolic::Variable& t_sy) {
-  MatrixX<symbolic::Polynomial> p_mat_sy =
-      p_mat.unaryExpr([t_sy](drake::Polynomial<double> p) {
-        return toSymbolicPolynomial(p, t_sy);
-      });
-  return p_mat_sy;
-}
-
-static vector<MatrixX<symbolic::Polynomial>> toSymbolicPolynomial(
-    const PiecewisePolynomial<double>& p_traj, const symbolic::Variable& t_sy) {
-  vector<MatrixX<symbolic::Polynomial>> p_traj_sy;
-  for (int i = 0; i < p_traj.get_number_of_segments(); i++) {
-    p_traj_sy.push_back(
-        toSymbolicPolynomial(p_traj.getPolynomialMatrix(i), t_sy));
-  }
-  return p_traj_sy;
-}
+typedef MatrixX<Polynomial> PolynomialFrame;
+typedef std::vector<Polynomial> PolynomialTrajectory;
 
 /**
  * Compute a funnel in which Time varying LQR can stabilize system and reach
@@ -143,73 +100,99 @@ class TrajectoryFunnel {
     solvers::MathematicalProgram prog;
     // Define the relative coordinates: x_bar = x - x0
     const VectorX<Variable> x_bar = prog.NewIndeterminates(num_states, "x");
-    const Variable t("t");
-    vector<double> time_samples;
-    PolynomialTrajectory V;
-    get_initial_lyapunov_candidate(x_bar, t, V, time_samples);
-    drake::log()->info(fmt::format(
-        "created {} time breaks out of span {:.1f} secs", time_samples.size(),
-        time_samples.back() - time_samples.front()));
-    PolynomialTrajectory rho = get_initial_rho(time_samples, t);
+    vector<double> t_breaks = lqr_res.S.get_segment_times();
 
-    // find V_dot
-    PolynomialTrajectory V_dot, rho_dot;
-
-    // for taylor approximating system
-    Environment f_approx_env;
-    for (int i = 0; i < num_states; i++) {
-      f_approx_env.insert(x_bar(i), 0.0);
+    // rho guess
+    vector<double> rho, rho_dot;
+    // rho[i] defines rho for [t[i], t[i+1]), rho[N] for t[N]
+    const double c = 15.5;
+    for (int i = 0; i < t_breaks.size(); i++) {
+      rho.push_back(exp(-c * (t_breaks.back() - t_breaks[i]) /
+                        (t_breaks.back() - t_breaks.front())));
+      if (i)
+        rho_dot.push_back((rho[i] - rho[i - 1]) /
+                          (t_breaks[i] - t_breaks[i - 1]));
     }
 
-    for (int i = 0; i < V.size(); i++) {
-      const double t_i = time_samples[i];
-      const auto symbolic_system = system.ToSymbolic();
-      const auto symbolic_context = symbolic_system->CreateDefaultContext();
-      // our dynamics are time invariant. Do we need this?
-      symbolic_context->SetTime(0.0);
-      symbolic_context->SetContinuousState(state_nominal.value(t_i) + x_bar);
-      symbolic_context->FixInputPort(
-          0, input_nominal.value(t_i) - lqr_res.K.value(t_i) * x_bar);
+    // V guess
+    vector<Polynomial> V, V_dot;
+    for (int i = 0; i < t_breaks.size(); i++) {
+      const double t = t_breaks[i];
+      const MatrixX<double> S = lqr_res.S.value(t);
+      V.push_back(Polynomial(x_bar.dot(S * x_bar)));
 
-      const VectorX<Expression> f =
-          symbolic_system->EvalTimeDerivatives(*symbolic_context)
-              .get_vector()
-              .CopyToVector();
+      if (i) {  // v_dot = jac(V, x_bar)*x_bar_dot + del_V/del_t
+        const Polynomial V_dot_prev =
+            V[i - 1].Jacobian(x_bar) *
+                f_approx_polynomial(system, x_bar, lqr_res.K.value(t),
+                                    state_nominal.value(t_breaks[i - 1]),
+                                    input_nominal.value(t_breaks[i - 1])) +
+            (V[i] - V[i - 1]) / (t_breaks[i] - t_breaks[i - 1]);
+        V_dot.push_back(V_dot_prev);
+        // balance V and V_dot
+        // todo: V is for break while V_dot is for segment. is this right?
+        balance_V_with_Vdot(x_bar, V[i - 1], V_dot[i - 1]);
+      }
+    }
+    // todo: assert V_f=Q_f?
 
-      const VectorX<symbolic::Polynomial> f_bar_poly =
-          f.unaryExpr([f_approx_env](const Expression& xi_dot) {
-            const double x0i_dot = xi_dot.Evaluate(f_approx_env);
-            return symbolic::Polynomial(
-                symbolic::TaylorExpand(xi_dot - x0i_dot, f_approx_env, 2));
-          });
+    assert(V.size() == t_breaks.size() && rho.size() == V.size() &&
+           V_dot.size() == rho_dot.size() && V_dot.size() == V.size() - 1);
 
-      symbolic::Polynomial V_dot_i = (V[i].Jacobian(x_bar) * f_bar_poly +
-                                      V[i].Jacobian(Vector1<Variable>(t)))[0];
-
-      V[i] = V[i].EvaluatePartial(t, t_i);
-      V_dot.push_back(V_dot_i.EvaluatePartial(t, t_i));
-      // balance V and Vdot if Vdot is negative definite. todo: why do this?
-      balance_V_with_Vdot(x_bar, V[i], V_dot[i]);
-
-      // these are simply doubles todo: change type
-      rho_dot.push_back(rho[i].Differentiate(t).EvaluatePartial(t, t_i));
-      rho[i] = rho[i].EvaluatePartial(t, t_i);
-
+    // start bilinear optimization of rho and lagrange multipliers
+    for (int i = 0; i < V_dot.size(); i++) {
       drake::log()->info(
           fmt::format("finding lagrange multipliers for segment {}", i));
       optimize_lagrange_multipliers(x_bar, V[i], V_dot[i], rho[i], rho_dot[i]);
     }
-    const int max_iterations = 2;
-    for (int iter = 0; iter < max_iterations; iter++) {
-      PolynomialTrajectory mu =
-          optimize_lagrange_multipliers(x_bar, V, V_dot, rho, rho_dot);
-      optimize_rho(prog, x_bar, t, time_samples, V, V_dot, mu, rho, rho_dot);
-    }
+    log()->info("lagrange multipliers optimized for trajectory");
+
+    // const int max_iterations = 2;
+    // for (int iter = 0; iter < max_iterations; iter++) {
+    //   PolynomialTrajectory mu =
+    //       optimize_lagrange_multipliers(x_bar, V, V_dot, rho, rho_dot);
+    //   optimize_rho(prog, x_bar, t, time_samples, V, V_dot, mu, rho, rho_dot);
+    // }
   }
 
-  static void balance_V_with_Vdot(const VectorX<Variable>& x,
-                                  symbolic::Polynomial& V,
-                                  symbolic::Polynomial& Vdot) {
+  static VectorX<Polynomial> f_approx_polynomial(const System<double>& system,
+                                                 const VectorX<Variable>& x_bar,
+                                                 const MatrixX<double>& K0,
+                                                 const VectorX<double>& x0,
+                                                 const VectorX<double>& u0) {
+    const auto symbolic_system = system.ToSymbolic();
+    const auto symbolic_context = symbolic_system->CreateDefaultContext();
+    // our dynamics are time invariant. Do we need this?
+    symbolic_context->SetTime(0.0);
+    symbolic_context->SetContinuousState(x0 + x_bar);
+    symbolic_context->FixInputPort(0, u0 - K0 * x_bar);
+
+    // todo: move this outside
+    // for taylor approximating system
+    Environment f_approx_env;
+    for (int i = 0; i < x_bar.size(); i++) {
+      f_approx_env.insert(x_bar(i), 0.0);
+    }
+
+    const VectorX<Expression> f =
+        symbolic_system->EvalTimeDerivatives(*symbolic_context)
+            .get_vector()
+            .CopyToVector();
+
+    const VectorX<double> f0 =
+        f.unaryExpr([f_approx_env](const Expression& xi_dot) {
+          return xi_dot.Evaluate(f_approx_env);
+        });
+
+    const VectorX<Polynomial> f_poly =
+        f.unaryExpr([f_approx_env](const Expression& xi_dot) {
+          return Polynomial(TaylorExpand(xi_dot, f_approx_env, 2));
+        });
+    return f_poly - f0;
+  }
+
+  static void balance_V_with_Vdot(const VectorX<Variable>& x, Polynomial& V,
+                                  Polynomial& Vdot) {
     Environment env;
     for (int i = 0; i < x.size(); i++) {
       env.insert(x(i), 0.0);
@@ -245,42 +228,22 @@ class TrajectoryFunnel {
     for (int i = 0; i < static_cast<int>(x.size()); i++) {
       subs.emplace(x(i), Tx(i));
     }
-    V = symbolic::Polynomial(V.ToExpression().Substitute(subs));
-    Vdot = symbolic::Polynomial(Vdot.ToExpression().Substitute(subs));
+    V = Polynomial(V.ToExpression().Substitute(subs));
+    Vdot = Polynomial(Vdot.ToExpression().Substitute(subs));
   }
 
-  // sec. 3.1 [2]
-  PolynomialTrajectory optimize_lagrange_multipliers(
-      const solvers::VectorXIndeterminate& x, const PolynomialTrajectory& V,
-      const PolynomialTrajectory& V_dot, const PolynomialTrajectory& rho,
-      const PolynomialTrajectory& rho_dot) {
-    // todo: assert all time segments consistent
-    PolynomialTrajectory mu;
-    for (int i = 0; i < V.size(); i++) {
-      // for (int x_idx = 0; x_idx < x.size(); x_idx++) {
-      //   const int x_i_deg = V_dot[i].Degree(x[x_idx]);
-      //   if (x_i_deg > mu_degree) mu_degree = x_i_deg;
-      // }
-      // drake::log()->info(
-      //     fmt::format("lagrange polynomial degree: {}", mu_degree));
-
-      mu.push_back(
-          optimize_lagrange_multipliers(x, V[i], V_dot[i], rho[i], rho_dot[i]));
-    }
-    return mu;
-  }
-
-  symbolic::Polynomial optimize_lagrange_multipliers(
-      const solvers::VectorXIndeterminate& x, const symbolic::Polynomial& V,
-      const symbolic::Polynomial& V_dot, const symbolic::Polynomial& rho,
-      const symbolic::Polynomial& rho_dot) {
+  Polynomial optimize_lagrange_multipliers(const VectorX<Variable>& x,
+                                           const Polynomial& V,
+                                           const Polynomial& V_dot,
+                                           const double& rho,
+                                           const double& rho_dot) {
     solvers::MathematicalProgram prog;
     prog.AddIndeterminates(x);
 
     // creates decision variable
     const Variable gamma = prog.NewContinuousVariables<1>("gamma")[0];
     const int mu_degree = 2;
-    const symbolic::Polynomial mu =
+    const Polynomial mu =
         prog.NewFreePolynomial(symbolic::Variables(x), mu_degree);
     prog.AddSosConstraint(gamma - (V_dot - rho_dot + mu * (V - rho)));
     prog.AddCost(gamma);
@@ -288,7 +251,7 @@ class TrajectoryFunnel {
     const auto result = solvers::Solve(prog);
     assert(result.is_success());
     assert(result.GetSolution(gamma) < 0);
-    return symbolic::Polynomial(result.GetSolution(mu.ToExpression()));
+    return Polynomial(result.GetSolution(mu.ToExpression()));
   }
 
   void optimize_rho(
@@ -311,7 +274,7 @@ class TrajectoryFunnel {
       prog->AddConstraint(rho[i].EvaluatePartial(t, time_samples[i + 1]) ==
                           rho[i + 1].EvaluatePartial(t, time_samples[i + 1]));
     }
-    symbolic::Polynomial volume_objective;
+    Polynomial volume_objective;
 
     for (int i = 0; i < rho.size(); i++) {
       volume_objective += rho[i].EvaluatePartial(t, time_samples[i]) *
@@ -324,67 +287,11 @@ class TrajectoryFunnel {
     auto result = solvers::Solve(*prog);
     assert(result.is_success());
     for (int i = 0; i < rho.size(); i++) {
-      rho_opt[i] =
-          symbolic::Polynomial(result.GetSolution(rho[i].ToExpression()));
+      rho_opt[i] = Polynomial(result.GetSolution(rho[i].ToExpression()));
       rho_opt_dot[i] = rho_opt[i].Differentiate(t);
     }
   }
-  static VectorX<symbolic::Polynomial> polynomial_cast(
-      const VectorX<Variable>& x) {
-    return x.unaryExpr(
-        [](const Variable& el) { return symbolic::Polynomial(el); });
-  }
-
-  vector<symbolic::Polynomial> get_initial_rho(
-      const std::vector<double>& time_samples, const Variable& t) {
-    const double c = 15.5;
-
-    vector<MatrixX<double>> rho_knots;
-    std::transform(time_samples.begin(), time_samples.end(),
-                   std::back_inserter(rho_knots),
-                   [time_samples, c](const double& t_break) {
-                     return Vector1<double>(
-                         exp(-c * (time_samples.back() - t_break) /
-                             (time_samples.back() - time_samples.front())));
-                   });
-    const PiecewisePolynomial<double> rho =
-        PiecewisePolynomial<double>::FirstOrderHold(time_samples, rho_knots);
-    vector<symbolic::Polynomial> rho_sy;
-    for (int i = 0; i < rho.get_number_of_segments(); i++) {
-      rho_sy.push_back(toSymbolicPolynomial(rho.getPolynomial(i), t));
-    }
-    return rho_sy;
-  }
-
-  void get_initial_lyapunov_candidate(const VectorX<Variable>& x_bar,
-                                      const Variable& t,
-                                      vector<symbolic::Polynomial>& V,
-                                      vector<double>& time_samples) {
-    const PiecewisePolynomial<double> S = DensePPolyToSpare(lqr_res.S);
-
-    time_samples = S.get_segment_times();
-    const VectorX<symbolic::Polynomial> x_bar_poly = polynomial_cast(x_bar);
-
-    for (int i = 0; i < S.get_number_of_segments(); i++) {
-      const symbolic::Polynomial V_i = x_bar_poly.dot(
-          toSymbolicPolynomial(S.getPolynomialMatrix(i), t) * x_bar_poly);
-      V.push_back(V_i);
-    }
-  }
-  static PiecewisePolynomial<double> DensePPolyToSpare(
-      const PiecewisePolynomial<double>& p, const int num_final_segments = 40) {
-    VectorX<double> time_breaks_vectorized = VectorX<double>::LinSpaced(
-        num_final_segments, p.start_time(), p.end_time());
-    vector<double> time_breaks(
-        time_breaks_vectorized.data(),
-        time_breaks_vectorized.data() + time_breaks_vectorized.size());
-    vector<MatrixX<double>> p_knots;
-    std::transform(time_breaks.begin(), time_breaks.end(),
-                   std::back_inserter(p_knots),
-                   [p](const double& t_break) { return p.value(t_break); });
-    return PiecewisePolynomial<double>::FirstOrderHold(time_breaks, p_knots);
-  }
-};
+};  // namespace analysis
 
 }  // namespace analysis
 }  // namespace systems
