@@ -86,6 +86,7 @@ drake_cc_library(
         "//common:default_scalars",
         "//common:essential",
         "//common/trajectories:piecewise_polynomial",
+        "//math:quadratic_form",
         "//systems/analysis:region_of_attraction",
         "//systems/controllers:finite_horizon_linear_quadratic_regulator",
         "//systems/framework:leaf_system",
@@ -102,6 +103,21 @@ drake_cc_binary(
         ":trajectory_funnel",
         ":trajectory_generator",
         "//systems/analysis:simulator",
+        "//systems/framework:diagram_builder",
+        "@gflags",
+    ],
+)
+
+drake_cc_binary(
+    name = "swing_up_pendulum",
+    srcs = ["swing_up_pendulum.cc"],
+    deps = [
+        ":trajectory_funnel",
+        ":trajectory_optimizer",
+        "//common/trajectories:piecewise_polynomial",
+        "//examples/pendulum:pendulum_plant",
+        "//systems/analysis:simulator",
+        "//systems/controllers:finite_horizon_linear_quadratic_regulator",
         "//systems/framework:diagram_builder",
         "@gflags",
     ],

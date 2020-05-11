@@ -30,7 +30,7 @@ class TrajectoryOptimizer {
   systems::trajectory_optimization::DirectCollocation optimizer;
 
   const systems::LeafSystem<double>& plant;
-  const int kNumStates;
+  const int kNumStates, kNumInputs;
 
   VectorX<double> intitial_state_des, final_state_des;
 
@@ -38,6 +38,7 @@ class TrajectoryOptimizer {
   TrajectoryOptimizer(const systems::LeafSystem<double>& plant_)
       : plant(plant_),
         kNumStates(plant.CreateDefaultContext()->num_continuous_states()),
+        kNumInputs(plant.get_input_port(0).size()),
         optimizer(systems::trajectory_optimization::DirectCollocation(
             &plant_, *plant_.CreateDefaultContext(), kNumTimeSamples,
             kTimeStepMin, kTimeStepMax)) {
@@ -87,9 +88,10 @@ class TrajectoryOptimizer {
 
     auto state_traj = PPoly::FirstOrderHold(
         {0, traj_duration}, {intitial_state_des + eps, final_state_des});
-    auto input_traj = PPoly::ZeroOrderHold(
-        {0, traj_duration},
-        {Vector2<double>(0, 0.5), Vector2<double>(0, 0.5)});  // PPoly();
+    auto input_traj = PPoly();
+    // PPoly::ZeroOrderHold(
+    //   {0, traj_duration},
+    // {Vector2<double>(0, 0.5), Vector2<double>(0, 0.5)});
 
     optimizer.SetInitialTrajectory(input_traj, state_traj);
   }
@@ -100,7 +102,7 @@ class TrajectoryOptimizer {
     set_trajectory_guess();
     optimizer.AddDurationBounds(0, max_traj_time);
 
-    optimizer.SetSolverOption(solvers::IpoptSolver::id(), "print_level", 5);
+    optimizer.SetSolverOption(solvers::IpoptSolver::id(), "print_level", 3);
 
     log()->info("computing optimal perching trajectory...");
     const auto result = solvers::Solve(optimizer);
