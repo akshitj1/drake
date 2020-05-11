@@ -21,6 +21,7 @@ namespace systems {
 namespace analysis {
 using namespace trajectories;
 using solvers::MathematicalProgram;
+using solvers::Solve;
 using std::vector;
 using symbolic::Environment;
 using symbolic::Expression;
@@ -139,20 +140,31 @@ class TrajectoryFunnel {
     assert(V.size() == t_breaks.size() && rho.size() == V.size() &&
            V_dot.size() == rho_dot.size() && V_dot.size() == V.size() - 1);
 
-    // start bilinear optimization of rho and lagrange multipliers
-    for (int i = 0; i < V_dot.size(); i++) {
-      drake::log()->info(
-          fmt::format("finding lagrange multipliers for segment {}", i));
-      optimize_lagrange_multipliers(x_bar, V[i], V_dot[i], rho[i], rho_dot[i]);
-    }
-    log()->info("lagrange multipliers optimized for trajectory");
+    const int max_iter = 10;
+    const double convergence_tol = 0.01;
+    double prev_rho_integral = 0, rho_integral;
+    for (int iter = 0; iter < max_iter; iter++) {
+      PolynomialTrajectory mu;
 
-    // const int max_iterations = 2;
-    // for (int iter = 0; iter < max_iterations; iter++) {
-    //   PolynomialTrajectory mu =
-    //       optimize_lagrange_multipliers(x_bar, V, V_dot, rho, rho_dot);
-    //   optimize_rho(prog, x_bar, t, time_samples, V, V_dot, mu, rho, rho_dot);
-    // }
+      // start bilinear optimization of rho and lagrange multipliers
+      for (int i = 0; i < V_dot.size(); i++) {
+        drake::log()->info(
+            fmt::format("finding lagrange multipliers for segment {}", i));
+        mu.push_back(optimize_lagrange_multipliers(x_bar, V[i], V_dot[i],
+                                                   rho[i], rho_dot[i]));
+      }
+      log()->info("lagrange multipliers optimized for trajectory");
+      optimize_rho(x_bar, t_breaks, V, V_dot, mu, rho, rho_dot, rho_integral);
+      log()->info(
+          fmt::format("rhos optimized for trajectory.\niter: {}\nvolume: "
+                      "{:.3f}\ngain: {:.3f}",
+                      iter, rho_integral, rho_integral - prev_rho_integral));
+      if (rho_integral - prev_rho_integral < convergence_tol) {
+        log()->info("funnel optimization converged.");
+        break;
+      }
+      prev_rho_integral = rho_integral;
+    }
   }
 
   static VectorX<Polynomial> f_approx_polynomial(const System<double>& system,
@@ -237,7 +249,7 @@ class TrajectoryFunnel {
                                            const Polynomial& V_dot,
                                            const double& rho,
                                            const double& rho_dot) {
-    solvers::MathematicalProgram prog;
+    MathematicalProgram prog;
     prog.AddIndeterminates(x);
 
     // creates decision variable
@@ -254,42 +266,44 @@ class TrajectoryFunnel {
     return Polynomial(result.GetSolution(mu.ToExpression()));
   }
 
-  void optimize_rho(
-      const MathematicalProgram& _prog, const solvers::VectorXIndeterminate& x,
-      const symbolic::Variable& t, const vector<double>& time_samples,
-      const PolynomialTrajectory& V, const PolynomialTrajectory& V_dot,
-      const PolynomialTrajectory& mu, PolynomialTrajectory& rho_opt,
-      PolynomialTrajectory& rho_opt_dot) {
-    std::unique_ptr<MathematicalProgram> prog = _prog.Clone();
-    PolynomialTrajectory rho, rho_dot;
-    for (int i = 0; i < V.size(); i++) {
-      rho.push_back(prog->NewFreePolynomial(symbolic::Variables({t}), 1));
-      rho_dot.push_back(rho.back().Differentiate(t));
-    }
-    const int num_time_samples = time_samples.size();
-    prog->AddConstraint(
-        rho.back().EvaluatePartial(t, time_samples.back()).ToExpression() ==
-        1.0);
-    for (int i = 0; i < rho.size() - 1; i++) {
-      prog->AddConstraint(rho[i].EvaluatePartial(t, time_samples[i + 1]) ==
-                          rho[i + 1].EvaluatePartial(t, time_samples[i + 1]));
-    }
-    Polynomial volume_objective;
+  void optimize_rho(const VectorX<Variable>& x, const vector<double>& t_breaks,
+                    const PolynomialTrajectory& V,
+                    const PolynomialTrajectory& V_dot,
+                    const PolynomialTrajectory& mu, vector<double>& rho_opt,
+                    vector<double>& rho_opt_dot, double& rho_integral) {
+    assert(mu.size() == V_dot.size());
+    MathematicalProgram prog;
+    prog.AddIndeterminates(x);
+    const solvers::VectorXDecisionVariable rho =
+        prog.NewContinuousVariables(V.size(), "rho");
+    prog.AddConstraint(rho[rho.size() - 1] == 1.0);
 
-    for (int i = 0; i < rho.size(); i++) {
-      volume_objective += rho[i].EvaluatePartial(t, time_samples[i]) *
-                          (time_samples[i + 1] - time_samples[i]);
-      prog->AddSosConstraint(-(V_dot[i] - rho_dot[i] + mu[i] * (rho[i] - V[i]))
-                                  .EvaluatePartial(t, time_samples[i]));
-    }
-    prog->AddCost(-volume_objective.ToExpression());
+    Polynomial volume_obj;
 
-    auto result = solvers::Solve(*prog);
+    for (int i = 0; i < t_breaks.size() - 1; i++) {
+      // for speed, bound variables to avoid free variables
+      prog.AddConstraint(rho[i] >= 0);
+
+      const double dt = t_breaks[i + 1] - t_breaks[i];
+      const Polynomial rho_dot((rho[i + 1] - rho[i]) / dt);
+      volume_obj += Polynomial(rho[i] * dt) + (dt * rho_dot * dt) / 2;
+      prog.AddSosConstraint(
+          -(V_dot[i] - rho_dot + mu[i] * (V[i] - Polynomial(rho[i]))));
+    }
+
+    prog.AddCost(-volume_obj.ToExpression());
+
+    const auto result = solvers::Solve(prog);
     assert(result.is_success());
+
     for (int i = 0; i < rho.size(); i++) {
-      rho_opt[i] = Polynomial(result.GetSolution(rho[i].ToExpression()));
-      rho_opt_dot[i] = rho_opt[i].Differentiate(t);
+      rho_opt[i] = result.GetSolution(rho[i]);
+      assert(rho_opt[i] > 0);
+      if (i)
+        rho_opt_dot[i - 1] =
+            (rho_opt[i] - rho_opt[i - 1]) / (t_breaks[i] - t_breaks[i - 1]);
     }
+    rho_integral = -result.get_optimal_cost();
   }
 };  // namespace analysis
 
