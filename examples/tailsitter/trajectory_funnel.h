@@ -34,10 +34,9 @@ typedef MatrixX<Polynomial> PolynomialFrame;
 typedef std::vector<Polynomial> PolynomialTrajectory;
 
 /**
- * Compute a funnel in which Time varying LQR can stabilize system and reach
- * into goal state. Goal is to use this for constructing LQR trees with finite
- * number of such funnels.
- * refs:
+ * Compute a funnel in which Time varying LQR can track given trajectory of
+ * system and reach into goal region. End goal is to use this for constructing
+ * LQR trees with finite number of such funnels. refs:
  *
  * [1] LQR-Trees: Feedback Motion Planning via Sums-of-Squares Verification:
  * https://groups.csail.mit.edu/robotics-center/public_papers/Tedrake10.pdf
@@ -159,12 +158,27 @@ class TrajectoryFunnel {
           fmt::format("rhos optimized for trajectory.\niter: {}\nvolume: "
                       "{:.3f}\ngain: {:.3f}",
                       iter, rho_integral, rho_integral - prev_rho_integral));
+      plot_funnel(x_bar, V[0], rho[0]);
       if (rho_integral - prev_rho_integral < convergence_tol) {
         log()->info("funnel optimization converged.");
         break;
       }
       prev_rho_integral = rho_integral;
     }
+  }
+
+  static void plot_funnel(const VectorX<Variable>& x_bar, const Polynomial& V,
+                          const double& rho) {
+    // fix theta_dot
+    Polynomial V_theta = V.EvaluatePartial(x_bar[1], 0.0);
+    MathematicalProgram prog;
+    prog.AddDecisionVariables(Vector1<Variable>(x_bar[0]));
+    prog.AddConstraint(V_theta.ToExpression() == rho);
+    prog.AddCost(-x_bar[0]);
+    const auto res = Solve(prog);
+    assert(res.is_success());
+    log()->info(
+        fmt::format("theta max dev.: {:.3f}", res.GetSolution(x_bar[0])));
   }
 
   static VectorX<Polynomial> f_approx_polynomial(const System<double>& system,

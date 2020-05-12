@@ -38,9 +38,9 @@ void swing_up_trajectory(const PendulumPlant<double>& pendulum,
   static const double kInf = std::numeric_limits<double>::infinity() / 2;
 
   PendulumState<double> xi, xf, xf_tol;
-  xf.set_theta(M_PI / 4);
+  xf.set_theta(M_PI);
   xf_tol.set_theta(0.01);
-  xf_tol.set_thetadot(kInf);
+  xf_tol.set_thetadot(1);
 
   PendulumState<double> xl, xu;
   xl.set_theta(-M_PI);
@@ -80,8 +80,8 @@ FiniteHorizonLinearQuadraticRegulatorResult stabilize_lqr(
       xf_tol.CopyToVector().array().square().inverse().matrix().asDiagonal()};
 
   PendulumState<double> x_cost;
-  x_cost.set_theta(1);
-  x_cost.set_thetadot(1);
+  x_cost.set_theta(0.1);
+  x_cost.set_thetadot(0.1);
   const MatrixX<double> Q{x_cost.CopyToVector().asDiagonal()};
 
   PendulumInput<double> u_cost;
