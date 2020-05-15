@@ -14,7 +14,7 @@ namespace drake {
 namespace examples {
 namespace pendulum {
 namespace {
-using systems::analysis::TrajectoryFunnel;
+using systems::analysis::FunnelOptimizer;
 using systems::controllers::FiniteHorizonLinearQuadraticRegulator;
 using systems::controllers::FiniteHorizonLinearQuadraticRegulatorOptions;
 using systems::controllers::FiniteHorizonLinearQuadraticRegulatorResult;
@@ -38,7 +38,7 @@ void swing_up_trajectory(const PendulumPlant<double>& pendulum,
   static const double kInf = std::numeric_limits<double>::infinity() / 2;
 
   PendulumState<double> xi, xf, xf_tol;
-  xf.set_theta(M_PI);
+  xf.set_theta(M_PI / 3);
   xf_tol.set_theta(0.01);
   xf_tol.set_thetadot(1);
 
@@ -110,7 +110,7 @@ void swing_up() {
   FiniteHorizonLinearQuadraticRegulatorResult lqr_res =
       stabilize_lqr(pendulum, x0, u0);
   log()->info("computing trajectory funnel");
-  TrajectoryFunnel(pendulum, x0, u0, lqr_res);
+  FunnelOptimizer(pendulum, x0, u0, lqr_res);
   log()->info("Funnel computed");
 }
 }  // namespace

@@ -35,242 +35,6 @@ using symbolic::Variable;
 typedef MatrixX<Polynomial> PolynomialFrame;
 typedef std::vector<Polynomial> PolynomialTrajectory;
 
-void rho_guess(const vector<double>& t_breaks, vector<double>& rho,
-               vector<double>& rho_dot) {
-  const double c = 15.5;
-  for (int i = 0; i < t_breaks.size(); i++) {
-    rho.push_back(exp(-c * (t_breaks.back() - t_breaks[i]) /
-                      (t_breaks.back() - t_breaks.front())));
-    if (i)
-      rho_dot.push_back((rho[i] - rho[i - 1]) /
-                        (t_breaks[i] - t_breaks[i - 1]));
-  }
-}
-
-VectorX<Polynomial> f_approx_polynomial(const System<double>& system,
-                                        const VectorX<Variable>& x_bar,
-                                        const MatrixX<double>& K0,
-                                        const VectorX<double>& x0,
-                                        const VectorX<double>& u0) {
-  const auto symbolic_system = system.ToSymbolic();
-  const auto symbolic_context = symbolic_system->CreateDefaultContext();
-  // our dynamics are time invariant. Do we need this?
-  symbolic_context->SetTime(0.0);
-  symbolic_context->SetContinuousState(x0 + x_bar);
-  symbolic_context->FixInputPort(0, u0 - K0 * x_bar);
-
-  // todo: move this outside
-  // for taylor approximating system
-  Environment f_approx_env;
-  for (int i = 0; i < x_bar.size(); i++) {
-    f_approx_env.insert(x_bar(i), 0.0);
-  }
-
-  const VectorX<Expression> f =
-      symbolic_system->EvalTimeDerivatives(*symbolic_context)
-          .get_vector()
-          .CopyToVector();
-
-  const VectorX<double> f0 =
-      f.unaryExpr([f_approx_env](const Expression& xi_dot) {
-        return xi_dot.Evaluate(f_approx_env);
-      });
-
-  const VectorX<Polynomial> f_poly =
-      f.unaryExpr([f_approx_env](const Expression& xi_dot) {
-        return Polynomial(TaylorExpand(xi_dot, f_approx_env, 2));
-      });
-  return f_poly - f0;
-}
-
-void balance_V_with_Vdot(const VectorX<Variable>& x, Polynomial& V,
-                         Polynomial& Vdot) {
-  Environment env;
-  for (int i = 0; i < x.size(); i++) {
-    env.insert(x(i), 0.0);
-  }
-  const Eigen::MatrixXd S =
-      symbolic::Evaluate(symbolic::Jacobian(V.Jacobian(x), x), env);
-  const MatrixX<double> P =
-      symbolic::Evaluate(symbolic::Jacobian(Vdot.Jacobian(x), x), env);
-
-  // check if negative definite
-  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(P);
-  DRAKE_THROW_UNLESS(eigensolver.info() == Eigen::Success);
-
-  // A positive max eigenvalue indicates the system is locally unstable.
-  const double max_eigenvalue = eigensolver.eigenvalues().maxCoeff();
-  // According to the Lapack manual, the absolute accuracy of eigenvalues is
-  // eps*max(|eigenvalues|), so I will write my thresholds in those units.
-  // Anderson et al., Lapack User's Guide, 3rd ed. section 4.7, 1999.
-  const double tolerance = 1e-8;
-  const double max_abs_eigenvalue =
-      eigensolver.eigenvalues().cwiseAbs().maxCoeff();
-  // DRAKE_THROW_UNLESS(max_eigenvalue <=
-  //                    tolerance * std::max(1., max_abs_eigenvalue));
-
-  bool Vdot_is_locally_negative_definite =
-      (max_eigenvalue <= -tolerance * std::max(1., max_abs_eigenvalue));
-
-  if (!Vdot_is_locally_negative_definite) return;
-
-  const Eigen::MatrixXd T = math::BalanceQuadraticForms(S, -P);
-  const VectorX<Expression> Tx = T * x;
-  symbolic::Substitution subs;
-  for (int i = 0; i < static_cast<int>(x.size()); i++) {
-    subs.emplace(x(i), Tx(i));
-  }
-  V = Polynomial(V.ToExpression().Substitute(subs));
-  Vdot = Polynomial(Vdot.ToExpression().Substitute(subs));
-}
-
-void lyapunov_guess(const System<double>& system,
-                    const const VectorX<Variable>& x_bar,
-                    const vector<double>& t_breaks,
-                    const FiniteHorizonLinearQuadraticRegulatorResult& lqr_res,
-                    const PiecewisePolynomial<double>& state_nominal,
-                    const PiecewisePolynomial<double>& input_nominal,
-                    vector<Polynomial>& V, vector<Polynomial>& V_dot) {
-  for (int i = 0; i < t_breaks.size(); i++) {
-    const double t = t_breaks[i];
-    const MatrixX<double> S = lqr_res.S.value(t);
-    V.push_back(Polynomial(x_bar.dot(S * x_bar)));
-
-    if (i) {  // v_dot = jac(V, x_bar)*x_bar_dot + del_V/del_t
-      const Polynomial V_dot_prev =
-          V[i - 1].Jacobian(x_bar) *
-              f_approx_polynomial(system, x_bar, lqr_res.K.value(t),
-                                  state_nominal.value(t_breaks[i - 1]),
-                                  input_nominal.value(t_breaks[i - 1])) +
-          (V[i] - V[i - 1]) / (t_breaks[i] - t_breaks[i - 1]);
-      V_dot.push_back(V_dot_prev);
-      // balance V and V_dot
-      // todo: V is for break while V_dot is for segment. is this right?
-      balance_V_with_Vdot(x_bar, V[i - 1], V_dot[i - 1]);
-    }
-  }
-}
-
-Polynomial optimize_lagrange_multipliers(const VectorX<Variable>& x,
-                                         const Polynomial& V,
-                                         const Polynomial& V_dot,
-                                         const double& rho,
-                                         const double& rho_dot) {
-  MathematicalProgram prog;
-  prog.AddIndeterminates(x);
-
-  // creates decision variable
-  const Variable gamma = prog.NewContinuousVariables<1>("gamma")[0];
-  const int mu_degree = 2;
-  const Polynomial mu =
-      prog.NewFreePolynomial(symbolic::Variables(x), mu_degree);
-  prog.AddSosConstraint(gamma - (V_dot - rho_dot + mu * (V - rho)));
-  prog.AddCost(gamma);
-
-  const auto result = solvers::Solve(prog);
-  assert(result.is_success());
-  assert(result.GetSolution(gamma) < 0);
-  return Polynomial(result.GetSolution(mu.ToExpression()));
-}
-
-void optimize_lagrange_multipliers(const VectorX<Variable>& x_bar,
-                                   const vector<Polynomial>& V,
-                                   const vector<Polynomial>& V_dot,
-                                   const vector<double>& rho,
-                                   const vector<double>& rho_dot,
-                                   vector<Polynomial>& mu) {
-  // start bilinear optimization of rho and lagrange multipliers
-  for (int i = 0; i < V_dot.size(); i++) {
-    drake::log()->info(
-        fmt::format("finding lagrange multipliers for segment {}", i));
-    mu.push_back(optimize_lagrange_multipliers(x_bar, V[i], V_dot[i], rho[i],
-                                               rho_dot[i]));
-  }
-}
-
-void optimize_rho(const VectorX<Variable>& x, const vector<double>& t_breaks,
-                  const PolynomialTrajectory& V,
-                  const PolynomialTrajectory& V_dot,
-                  const PolynomialTrajectory& mu, vector<double>& rho_opt,
-                  vector<double>& rho_opt_dot, double& rho_integral) {
-  assert(mu.size() == V_dot.size());
-  MathematicalProgram prog;
-  prog.AddIndeterminates(x);
-  const solvers::VectorXDecisionVariable rho =
-      prog.NewContinuousVariables(V.size(), "rho");
-  prog.AddConstraint(rho[rho.size() - 1] == 1.0);
-
-  Polynomial volume_obj;
-
-  for (int i = 0; i < t_breaks.size() - 1; i++) {
-    // for speed, bound variables to avoid free variables
-    prog.AddConstraint(rho[i] >= 0);
-
-    const double dt = t_breaks[i + 1] - t_breaks[i];
-    const Polynomial rho_dot((rho[i + 1] - rho[i]) / dt);
-    volume_obj += Polynomial(rho[i] * dt) + (dt * rho_dot * dt) / 2;
-    prog.AddSosConstraint(
-        -(V_dot[i] - rho_dot + mu[i] * (V[i] - Polynomial(rho[i]))));
-  }
-
-  prog.AddCost(-volume_obj.ToExpression());
-
-  const auto result = solvers::Solve(prog);
-  assert(result.is_success());
-
-  for (int i = 0; i < rho.size(); i++) {
-    rho_opt[i] = result.GetSolution(rho[i]);
-    assert(rho_opt[i] > 0);
-    if (i)
-      rho_opt_dot[i - 1] =
-          (rho_opt[i] - rho_opt[i - 1]) / (t_breaks[i] - t_breaks[i - 1]);
-  }
-  rho_integral = -result.get_optimal_cost();
-}
-
-void plot_funnel(const VectorX<Variable>& x_bar, const Polynomial& V,
-                 const double& rho) {
-  // fix theta_dot
-  Polynomial V_theta = V.EvaluatePartial(x_bar[1], 0.0);
-  MathematicalProgram prog;
-  prog.AddDecisionVariables(Vector1<Variable>(x_bar[0]));
-  prog.AddConstraint(V_theta.ToExpression() == rho);
-  prog.AddCost(-x_bar[0]);
-  const auto res = Solve(prog);
-  assert(res.is_success());
-  log()->info(fmt::format("theta max dev.: {:.3f}", res.GetSolution(x_bar[0])));
-}
-
-void maximize_funnel_for_fixed_controller(
-    const VectorX<Variable>& x_bar, const vector<double>& t_breaks,
-    const vector<Polynomial>& V, const vector<Polynomial>& V_dot,
-    vector<double>& rho, vector<double>& rho_dot, const double max_iter = 10,
-    const double convergence_tol = 0.01) {
-  assert(V.size() == t_breaks.size() && rho.size() == V.size() &&
-         V_dot.size() == rho_dot.size() && V_dot.size() == V.size() - 1);
-
-  double prev_rho_integral = 0, rho_integral = 2 * convergence_tol;
-  for (int iter = 0; iter < max_iter;
-       iter++, prev_rho_integral = rho_integral) {
-    PolynomialTrajectory mu;
-    optimize_lagrange_multipliers(x_bar, V, V_dot, rho, rho_dot, mu);
-    log()->info("lagrange multipliers optimized for trajectory");
-
-    optimize_rho(x_bar, t_breaks, V, V_dot, mu, rho, rho_dot, rho_integral);
-    log()->info(
-        fmt::format("rhos optimized for trajectory.\niter: {}\nvolume: "
-                    "{:.3f}\ngain: {:.3f}",
-                    iter, rho_integral, rho_integral - prev_rho_integral));
-    plot_funnel(x_bar, V[0], rho[0]);
-
-    if (rho_integral - prev_rho_integral < convergence_tol) {
-      log()->info("funnel optimization converged.");
-      return;
-    }
-  }
-  log()->warn("solution failed to converge. Reached max iteration!!!");
-}
-
 /**
  * Compute a funnel in which Time varying LQR can track given trajectory of
  * system and reach into goal region. End goal is to use this for constructing
@@ -306,33 +70,396 @@ void maximize_funnel_for_fixed_controller(
  * matlab implementation:
  * https://github.com/RobotLocomotion/drake/blob/last_sha_with_original_matlab/drake/matlab/systems/%40PolynomialSystem/maxROAFeedback.m
  */
-
-void TrajectoryFunnel(
-    const System<double>& system,
-    const PiecewisePolynomial<double>& state_nominal,
-    const PiecewisePolynomial<double>& input_nominal,
-    const FiniteHorizonLinearQuadraticRegulatorResult& lqr_res) {
-  const int num_states = system.CreateDefaultContext()->num_total_states();
-  const int num_inputs = system.get_input_port(0).size();
-  solvers::MathematicalProgram prog;
-
+class FunnelOptimizer {
+ private:
+  const System<double>& system;
+  const PiecewisePolynomial<double>& state_nominal;
+  const PiecewisePolynomial<double>& input_nominal;
   // Define the relative coordinates: x_bar = x - x0
-  const VectorX<Variable> x_bar = prog.NewIndeterminates(num_states, "x");
-  vector<double> t_breaks = lqr_res.S.get_segment_times();
+  VectorX<Variable> x_bar;
+  const vector<double> t_breaks;
+  const int num_points, num_segments;
+  const int num_states, num_inputs;
 
-  // rho guess
-  // rho[i] defines rho for [t[i], t[i+1]), rho[N] for t[N]
-  vector<double> rho, rho_dot;
-  rho_guess(t_breaks, rho, rho_dot);
+  vector<VectorX<Polynomial>> u_bar;
+  vector<Polynomial> rho;
+  vector<Polynomial> V;
+  vector<Polynomial> lambda;
 
-  // V guess
-  vector<Polynomial> V, V_dot;
-  lyapunov_guess(system, x_bar, t_breaks, lqr_res, state_nominal, input_nominal,
-                 V, V_dot);
-  // todo: assert V_f=Q_f?
+  const int u_deg = 1, l_deg = u_deg + 1, f_deg = 2, V_deg = 2;
+  const int max_iter = 10;
+  const double convergence_tolerance = 0.1;
 
-  maximize_funnel_for_fixed_controller(x_bar, t_breaks, V, V_dot, rho, rho_dot);
-}
+ public:
+  FunnelOptimizer(const System<double>& _system,
+                  const PiecewisePolynomial<double>& _state_nominal,
+                  const PiecewisePolynomial<double>& _input_nominal,
+                  const FiniteHorizonLinearQuadraticRegulatorResult& _lqr_res)
+      : system(_system),
+        state_nominal(_state_nominal),
+        input_nominal(_input_nominal),
+        t_breaks(_lqr_res.S.get_segment_times()),
+        num_points(t_breaks.size()),
+        num_segments(num_points - 1),
+        num_states(system.CreateDefaultContext()->num_total_states()),
+        num_inputs(system.get_input_port(0).size()) {
+    // solvers::MathematicalProgram prog;
+    // x_bar = prog.NewIndeterminates(num_states, "x");
+    x_bar = symbolic::MakeVectorContinuousVariable(num_states, "x_bar");
+
+    rho_guess();
+    u_guess(_lqr_res.K);
+    lyapunov_guess(_lqr_res.S);
+    assert(V.size() == rho.size() && rho.size() == num_points);
+
+    maximize_funnel();
+  }
+
+ private:
+  void rho_guess() {
+    const double c = 15.5;
+    for (int i = 0; i < num_points; i++) {
+      rho.push_back(Polynomial(exp(-c * (t(-1) - t(i)) / (t(-1) - t(0)))));
+    }
+  }
+  vector<Polynomial> get_rho_dot() {
+    vector<Polynomial> rho_dot;
+    for (int i = 0; i < num_segments; i++) rho_dot.push_back(get_rho_dot(i));
+    return rho_dot;
+  }
+  Polynomial get_rho_dot(const int& point) {
+    assert(point < num_segments);
+    return (rho[point] - rho[point + 1]) / (t(point) - t(point + 1));
+  }
+
+  void lyapunov_guess(const PiecewisePolynomial<double>& S) {
+    for (int i = 0; i < t_breaks.size(); i++) {
+      V.push_back(Polynomial(x_bar.dot(S.value(t(i)) * x_bar)));
+    }
+  }
+
+  void u_guess(const PiecewisePolynomial<double>& K) {
+    for (int i = 0; i < num_segments; i++) {
+      u_bar.push_back((-K.value(t(i)) * x_bar).template cast<Polynomial>());
+    }
+  }
+
+  double t(const int& point) {
+    int in_range_point = point % num_points < 0
+                             ? point % num_points + num_points
+                             : point % num_points;
+    return t_breaks[in_range_point];
+  }
+
+  // approx system to a polynomial at break in time
+  VectorX<Polynomial> f_approx_polynomial(const int& point) {
+    const auto symbolic_system = system.ToSymbolic();
+    const auto symbolic_context = symbolic_system->CreateDefaultContext();
+    // our dynamics are time invariant. Do we need this?
+    symbolic_context->SetTime(0.0);
+    symbolic_context->SetContinuousState(state_nominal.value(t(point)) + x_bar);
+    symbolic_context->FixInputPort(
+        0, input_nominal.value(t(point)) +
+               u_bar[point].unaryExpr(
+                   [](const Polynomial& p) { return p.ToExpression(); }));
+
+    // todo: move this outside
+    // for taylor approximating system
+    Environment f_approx_env;
+    for (int i = 0; i < num_states; i++) f_approx_env.insert(x_bar[i], 0.0);
+
+    const VectorX<Expression> f =
+        symbolic_system->EvalTimeDerivatives(*symbolic_context)
+            .get_vector()
+            .CopyToVector();
+
+    const VectorX<Polynomial> f0 =
+        f.unaryExpr([f_approx_env](const Expression& xi_dot) {
+          return Polynomial(xi_dot.EvaluatePartial(f_approx_env));
+        });
+
+    const VectorX<Polynomial> f_poly =
+        f.unaryExpr([f_approx_env, this](const Expression& xi_dot) {
+          return Polynomial(TaylorExpand(xi_dot, f_approx_env, this->f_deg));
+        });
+    return f_poly - f0;
+  }
+
+  vector<Polynomial> get_V_dot() {
+    vector<Polynomial> V_dot;
+    // v_dot = jac(V, x_bar)*x_bar_dot + del_V/del_t
+    for (int i = 0; i < num_segments; i++) {
+      V_dot.push_back(get_V_dot(i));
+
+      // balance V and V_dot
+      // todo: V is for break while V_dot is for segment. is this right?
+      // balance_V_with_Vdot(x_bar, V[i - 1], V_dot[i - 1]);
+    }
+    return V_dot;
+  }
+
+  Polynomial get_V_dot(const int& point) {
+    return V[point].Jacobian(x_bar) * f_approx_polynomial(point) +
+           (V[point] - V[point + 1]) / (t(point) - t(point + 1));
+  }
+  void extract_solution(const solvers::MathematicalProgramResult& res,
+                        Polynomial& x) {
+    x = Polynomial(res.GetSolution(x.ToExpression()));
+  }
+
+  void extract_solution(const solvers::MathematicalProgramResult& res,
+                        VectorX<Polynomial>& x) {
+    for (int i = 0; i < x.size(); i++) extract_solution(res, x[i]);
+  }
+
+  VectorX<Polynomial> get_parametrized_u(MathematicalProgram& prog) {
+    VectorX<Polynomial> u_bar(num_inputs);
+    for (int i = 0; i < num_inputs; i++)
+      u_bar[i] = prog.NewFreePolynomial(symbolic::Variables(x_bar), u_deg);
+    return u_bar;
+  }
+
+  // Step 1
+  void find_l_u() {
+    assert(lambda.size() == 0);
+    for (int i = 0; i < num_segments; i++) {
+      MathematicalProgram prog;
+      prog.AddIndeterminates(x_bar);
+      u_bar[i] = get_parametrized_u(prog);
+      // todo: clean V and V_dot terms with small coeffs.
+      lambda.push_back(
+          prog.NewFreePolynomial(symbolic::Variables(x_bar), l_deg));
+
+      prog.AddSosConstraint(-get_V_dot(i) + get_rho_dot(i) +
+                            lambda[i] * (V[i] - rho[i]));
+      // we do not add any cost as we are solving for only SOS feasibility
+      // todo: L1 is also declared also contrained as SOS. why?
+
+      const auto res = Solve(prog);
+      assert(res.is_success());
+      extract_solution(res, u_bar[i]);
+      extract_solution(res, lambda[i]);
+    }
+  }
+
+  // Step 2
+  double find_u_rho() {
+    MathematicalProgram prog;
+    prog.AddIndeterminates(x_bar);
+    Polynomial rho_integral;
+    for (int i = 0; i < num_points; i++) {
+      // prog.newnonnegativePoly requires deg>0
+      rho[i] = Polynomial(prog.NewContinuousVariables<1>("rho")[0]);
+      prog.AddConstraint(rho[i].ToExpression() >= 0);
+      rho_integral += rho[i];
+      // todo: rhof=1?
+      if (i < num_segments) u_bar[i] = get_parametrized_u(prog);
+
+      // to get dot at x_i_dot, x_i+1 should also be avail.
+      if (i)
+        prog.AddSosConstraint(-get_V_dot(i - 1) + get_rho_dot(i - 1) +
+                              lambda[i - 1] * (V[i - 1] - rho[i - 1]));
+    }
+    prog.AddCost(-rho_integral.ToExpression());
+
+    const auto res = Solve(prog);
+    assert(res.is_success());
+
+    for (int i = 0; i < num_points; i++) {
+      extract_solution(res, rho[i]);
+      if (i < num_segments) extract_solution(res, u_bar[i]);
+    }
+    // rho integral
+    return -res.get_optimal_cost();
+  }
+
+  // Step 3
+  double find_V_rho() {
+    MathematicalProgram prog;
+    prog.AddIndeterminates(x_bar);
+    Polynomial rho_integral;
+    for (int i = 0; i < num_points; i++) {
+      // prog.newnonnegativePoly requires deg>0
+      rho[i] = Polynomial(prog.NewContinuousVariables<1>("rho")[0]);
+      prog.AddConstraint(rho[i].ToExpression() >= 0);
+      rho_integral += rho[i];
+      // todo: rhof=1?
+      V[i] = prog.NewSosPolynomial(symbolic::Variables(x_bar), V_deg).first;
+      // to get dot at x_i_dot, x_i+1 should also be avail.
+      if (i)
+        prog.AddSosConstraint(-get_V_dot(i - 1) + get_rho_dot(i - 1) +
+                              lambda[i - 1] * (V[i - 1] - rho[i - 1]));
+    }
+    prog.AddCost(-rho_integral.ToExpression());
+
+    const auto res = Solve(prog);
+    assert(res.is_success());
+
+    for (int i = 0; i < num_points; i++) {
+      extract_solution(res, rho[i]);
+      extract_solution(res, V[i]);
+    }
+    // rho integral
+    return -res.get_optimal_cost();
+  };
+  void plot_funnel() {
+    // fix theta_dot
+    Polynomial V_theta = V[0].EvaluatePartial(x_bar[1], 0.0);
+    MathematicalProgram prog;
+    prog.AddDecisionVariables(Vector1<Variable>(x_bar[0]));
+    prog.AddConstraint(V_theta.ToExpression() == rho[0].ToExpression());
+    prog.AddCost(-x_bar[0]);
+    const auto res = Solve(prog);
+    assert(res.is_success());
+    log()->info(
+        fmt::format("theta max dev.: {:.3f}", res.GetSolution(x_bar[0])));
+  }
+
+  void maximize_funnel() {
+    double prev_rho_integral = 0, rho_integral = 2 * convergence_tolerance;
+    for (int iter = 0; iter < max_iter;
+         iter++, prev_rho_integral = rho_integral) {
+      log()->info("Step 1: Optimize L and u with V and rho fixed.");
+      find_l_u();
+
+      log()->info("Step 2: Optimize u and rho with V and l fixed.");
+      find_u_rho();
+
+      log()->info("Step 2: Optimize V and rho with u and l fixed.");
+      find_V_rho();
+
+      log()->info(
+          fmt::format("rhos optimized for trajectory.\niter: {}\nvolume: "
+                      "{:.3f}\ngain: {:.3f}",
+                      iter, rho_integral, rho_integral - prev_rho_integral));
+      plot_funnel();
+
+      if (rho_integral - prev_rho_integral < convergence_tolerance) {
+        log()->info("funnel optimization converged.");
+        return;
+      }
+    }
+    log()->warn("solution failed to converge. Reached max iteration!!!");
+  }
+};
+
+// void balance_V_with_Vdot(const VectorX<Variable>& x, Polynomial& V,
+//                          Polynomial& Vdot) {
+//   Environment env;
+//   for (int i = 0; i < x.size(); i++) {
+//     env.insert(x(i), 0.0);
+//   }
+//   const Eigen::MatrixXd S =
+//       symbolic::Evaluate(symbolic::Jacobian(V.Jacobian(x), x), env);
+//   const MatrixX<double> P =
+//       symbolic::Evaluate(symbolic::Jacobian(Vdot.Jacobian(x), x), env);
+
+//   // check if negative definite
+//   Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(P);
+//   DRAKE_THROW_UNLESS(eigensolver.info() == Eigen::Success);
+
+//   // A positive max eigenvalue indicates the system is locally unstable.
+//   const double max_eigenvalue = eigensolver.eigenvalues().maxCoeff();
+//   // According to the Lapack manual, the absolute accuracy of eigenvalues is
+//   // eps*max(|eigenvalues|), so I will write my thresholds in those units.
+//   // Anderson et al., Lapack User's Guide, 3rd ed. section 4.7, 1999.
+//   const double tolerance = 1e-8;
+//   const double max_abs_eigenvalue =
+//       eigensolver.eigenvalues().cwiseAbs().maxCoeff();
+//   // DRAKE_THROW_UNLESS(max_eigenvalue <=
+//   //                    tolerance * std::max(1., max_abs_eigenvalue));
+
+//   bool Vdot_is_locally_negative_definite =
+//       (max_eigenvalue <= -tolerance * std::max(1., max_abs_eigenvalue));
+
+//   if (!Vdot_is_locally_negative_definite) return;
+
+//   const Eigen::MatrixXd T = math::BalanceQuadraticForms(S, -P);
+//   const VectorX<Expression> Tx = T * x;
+//   symbolic::Substitution subs;
+//   for (int i = 0; i < static_cast<int>(x.size()); i++) {
+//     subs.emplace(x(i), Tx(i));
+//   }
+//   V = Polynomial(V.ToExpression().Substitute(subs));
+//   Vdot = Polynomial(Vdot.ToExpression().Substitute(subs));
+// }
+
+// Polynomial optimize_lagrange_multipliers(const VectorX<Variable>& x,
+//                                          const Polynomial& V,
+//                                          const Polynomial& V_dot,
+//                                          const double& rho,
+//                                          const double& rho_dot) {
+//   MathematicalProgram prog;
+//   prog.AddIndeterminates(x);
+
+//   // creates decision variable
+//   const Variable gamma = prog.NewContinuousVariables<1>("gamma")[0];
+//   const int mu_degree = 2;
+//   const Polynomial mu =
+//       prog.NewFreePolynomial(symbolic::Variables(x), mu_degree);
+//   prog.AddSosConstraint(gamma - (V_dot - rho_dot + mu * (V - rho)));
+//   prog.AddCost(gamma);
+
+//   const auto result = solvers::Solve(prog);
+//   assert(result.is_success());
+//   assert(result.GetSolution(gamma) < 0);
+//   return Polynomial(result.GetSolution(mu.ToExpression()));
+// }
+
+// void optimize_lagrange_multipliers(const VectorX<Variable>& x_bar,
+//                                    const vector<Polynomial>& V,
+//                                    const vector<Polynomial>& V_dot,
+//                                    const vector<double>& rho,
+//                                    const vector<double>& rho_dot,
+//                                    vector<Polynomial>& mu) {
+//   // start bilinear optimization of rho and lagrange multipliers
+//   for (int i = 0; i < V_dot.size(); i++) {
+//     drake::log()->info(
+//         fmt::format("finding lagrange multipliers for segment {}", i));
+//     mu.push_back(optimize_lagrange_multipliers(x_bar, V[i], V_dot[i], rho[i],
+//                                                rho_dot[i]));
+//   }
+// }
+
+// void optimize_rho(const VectorX<Variable>& x, const vector<double>& t_breaks,
+//                   const PolynomialTrajectory& V,
+//                   const PolynomialTrajectory& V_dot,
+//                   const PolynomialTrajectory& mu, vector<double>& rho_opt,
+//                   vector<double>& rho_opt_dot, double& rho_integral) {
+//   assert(mu.size() == V_dot.size());
+//   MathematicalProgram prog;
+//   prog.AddIndeterminates(x);
+//   const solvers::VectorXDecisionVariable rho =
+//       prog.NewContinuousVariables(V.size(), "rho");
+//   prog.AddConstraint(rho[rho.size() - 1] == 1.0);
+
+//   Polynomial volume_obj;
+
+//   for (int i = 0; i < t_breaks.size() - 1; i++) {
+//     // for speed, bound variables to avoid free variables
+//     prog.AddConstraint(rho[i] >= 0);
+
+//     const double dt = t_breaks[i + 1] - t_breaks[i];
+//     const Polynomial rho_dot((rho[i + 1] - rho[i]) / dt);
+//     volume_obj += Polynomial(rho[i] * dt) + (dt * rho_dot * dt) / 2;
+//     prog.AddSosConstraint(
+//         -(V_dot[i] - rho_dot + mu[i] * (V[i] - Polynomial(rho[i]))));
+//   }
+
+//   prog.AddCost(-volume_obj.ToExpression());
+
+//   const auto result = solvers::Solve(prog);
+//   assert(result.is_success());
+
+//   for (int i = 0; i < rho.size(); i++) {
+//     rho_opt[i] = result.GetSolution(rho[i]);
+//     assert(rho_opt[i] > 0);
+//     if (i)
+//       rho_opt_dot[i - 1] =
+//           (rho_opt[i] - rho_opt[i - 1]) / (t_breaks[i] - t_breaks[i - 1]);
+//   }
+//   rho_integral = -result.get_optimal_cost();
+// }
 
 }  // namespace
 }  // namespace analysis
