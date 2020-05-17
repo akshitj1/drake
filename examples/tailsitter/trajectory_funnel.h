@@ -27,6 +27,7 @@ using solvers::Solve;
 using std::vector;
 using symbolic::Environment;
 using symbolic::Expression;
+using symbolic::Monomial;
 using symbolic::Polynomial;
 using symbolic::Substitution;
 using symbolic::TaylorExpand;
@@ -69,6 +70,9 @@ typedef std::vector<Polynomial> PolynomialTrajectory;
  *
  * matlab implementation:
  * https://github.com/RobotLocomotion/drake/blob/last_sha_with_original_matlab/drake/matlab/systems/%40PolynomialSystem/maxROAFeedback.m
+ * (for LTI fixed point tracking)
+ * https://github.com/RobotLocomotion/drake/pull/1176/files
+ * (Funnel library for quadrotor)
  */
 class FunnelOptimizer {
  private:
@@ -84,6 +88,8 @@ class FunnelOptimizer {
   vector<VectorX<Polynomial>> u_bar;
   vector<Polynomial> rho;
   vector<Polynomial> V;
+  // for normalization constratint in V
+  vector<double> trace_V0;
   vector<Polynomial> lambda;
 
   const int u_deg = 1, l_deg = u_deg + 1, f_deg = 2, V_deg = 2;
@@ -110,12 +116,22 @@ class FunnelOptimizer {
     rho_guess();
     u_guess(_lqr_res.K);
     lyapunov_guess(_lqr_res.S);
-    assert(V.size() == rho.size() && rho.size() == num_points);
+    assert(V.size() == num_points && rho.size() == num_points &&
+           trace_V0.size() == num_points);
 
     maximize_funnel();
   }
 
  private:
+  static vector<double> resample(const vector<double>& x,
+                                 const int num_samples = 105) {
+    vector<double> x_resampled(num_samples);
+    const double span = x.back() - x.front();
+    const double interval = span / (num_samples - 1);
+    for (int i = 0; i < num_samples; i++)
+      x_resampled[i] = std::min(x.front() + i * interval, x.back());
+    return x_resampled;
+  }
   void rho_guess() {
     const double c = 15.5;
     for (int i = 0; i < num_points; i++) {
@@ -135,6 +151,7 @@ class FunnelOptimizer {
   void lyapunov_guess(const PiecewisePolynomial<double>& S) {
     for (int i = 0; i < t_breaks.size(); i++) {
       V.push_back(Polynomial(x_bar.dot(S.value(t(i)) * x_bar)));
+      trace_V0.push_back(S.value(t(i)).trace());
     }
   }
 
@@ -190,10 +207,6 @@ class FunnelOptimizer {
     // v_dot = jac(V, x_bar)*x_bar_dot + del_V/del_t
     for (int i = 0; i < num_segments; i++) {
       V_dot.push_back(get_V_dot(i));
-
-      // balance V and V_dot
-      // todo: V is for break while V_dot is for segment. is this right?
-      // balance_V_with_Vdot(x_bar, V[i - 1], V_dot[i - 1]);
     }
     return V_dot;
   }
@@ -201,6 +214,10 @@ class FunnelOptimizer {
   Polynomial get_V_dot(const int& point) {
     return V[point].Jacobian(x_bar) * f_approx_polynomial(point) +
            (V[point] - V[point + 1]) / (t(point) - t(point + 1));
+
+    //  balance V and V_dot
+    // todo: V is for break while V_dot is for segment. is this right?
+    // balance_V_with_Vdot(x_bar, V[i - 1], V_dot[i - 1]);
   }
   void extract_solution(const solvers::MathematicalProgramResult& res,
                         Polynomial& x) {
@@ -212,34 +229,54 @@ class FunnelOptimizer {
     for (int i = 0; i < x.size(); i++) extract_solution(res, x[i]);
   }
 
+  static Polynomial get_linear_polynomial(MathematicalProgram& prog,
+                                          const VectorX<Variable>& x) {
+    const solvers::VectorXDecisionVariable coeffs{
+        prog.NewContinuousVariables(x.size())};
+    symbolic::Polynomial p;
+    for (int i = 0; i < x.size(); ++i) {
+      p.AddProduct(coeffs(i),
+                   Monomial(x(i)));  // p += coeffs(i) * m(i);
+    }
+    return p;
+  }
+
   VectorX<Polynomial> get_parametrized_u(MathematicalProgram& prog) {
     VectorX<Polynomial> u_bar(num_inputs);
     for (int i = 0; i < num_inputs; i++)
-      u_bar[i] = prog.NewFreePolynomial(symbolic::Variables(x_bar), u_deg);
+      u_bar[i] = get_linear_polynomial(prog, x_bar);
     return u_bar;
   }
 
   // Step 1
-  void find_l_u() {
-    assert(lambda.size() == 0);
+  double find_l_u() {
+    if (lambda.size() == 0) lambda = vector<Polynomial>(num_segments);
     for (int i = 0; i < num_segments; i++) {
+      drake::log()->info(
+          fmt::format("finding lagrange multipliers for segment {}/{}", i + 1,
+                      num_segments));
       MathematicalProgram prog;
       prog.AddIndeterminates(x_bar);
       u_bar[i] = get_parametrized_u(prog);
       // todo: clean V and V_dot terms with small coeffs.
-      lambda.push_back(
-          prog.NewFreePolynomial(symbolic::Variables(x_bar), l_deg));
+      lambda[i] = prog.NewFreePolynomial(symbolic::Variables(x_bar), l_deg);
+
+      // const Variable gamma = prog.NewContinuousVariables<1>("gamma")[0];
+      // prog.AddConstraint(gamma <= 0);
+      // prog.AddCost(gamma);
 
       prog.AddSosConstraint(-get_V_dot(i) + get_rho_dot(i) +
-                            lambda[i] * (V[i] - rho[i]));
+                            lambda[i] * (rho[i] - V[i]));
       // we do not add any cost as we are solving for only SOS feasibility
-      // todo: L1 is also declared also contrained as SOS. why?
 
       const auto res = Solve(prog);
       assert(res.is_success());
       extract_solution(res, u_bar[i]);
       extract_solution(res, lambda[i]);
     }
+    Expression rho_integral;
+    for (int i = 0; i < num_points; i++) rho_integral += rho[i].ToExpression();
+    return rho_integral.Evaluate();
   }
 
   // Step 2
@@ -258,8 +295,9 @@ class FunnelOptimizer {
       // to get dot at x_i_dot, x_i+1 should also be avail.
       if (i)
         prog.AddSosConstraint(-get_V_dot(i - 1) + get_rho_dot(i - 1) +
-                              lambda[i - 1] * (V[i - 1] - rho[i - 1]));
+                              lambda[i - 1] * (rho[i - 1] - V[i - 1]));
     }
+    prog.AddConstraint(rho.back().ToExpression() == 1.0);
     prog.AddCost(-rho_integral.ToExpression());
 
     const auto res = Solve(prog);
@@ -270,7 +308,16 @@ class FunnelOptimizer {
       if (i < num_segments) extract_solution(res, u_bar[i]);
     }
     // rho integral
-    return -res.get_optimal_cost();
+    extract_solution(res, rho_integral);
+    return rho_integral.Evaluate(Environment());
+  }
+
+  static Expression trace(const MatrixX<Variable>& X) {
+    // built-in eigen cannot convert variable sum to expression
+    assert(X.rows() == X.cols());
+    Expression trace_X;
+    for (int i = 0; i < X.rows(); i++) trace_X += X(i, i);
+    return trace_X;
   }
 
   // Step 3
@@ -283,13 +330,19 @@ class FunnelOptimizer {
       rho[i] = Polynomial(prog.NewContinuousVariables<1>("rho")[0]);
       prog.AddConstraint(rho[i].ToExpression() >= 0);
       rho_integral += rho[i];
-      // todo: rhof=1?
-      V[i] = prog.NewSosPolynomial(symbolic::Variables(x_bar), V_deg).first;
+
+      auto V_S = prog.NewSosPolynomial(x_bar.template cast<Monomial>());
+      assert(V_S.second.rows() == num_states &&
+             V_S.second.cols() == num_states);
+      V[i] = V_S.first;
+      prog.AddConstraint(trace(V_S.second) == trace_V0[i]);
+
       // to get dot at x_i_dot, x_i+1 should also be avail.
       if (i)
         prog.AddSosConstraint(-get_V_dot(i - 1) + get_rho_dot(i - 1) +
-                              lambda[i - 1] * (V[i - 1] - rho[i - 1]));
+                              lambda[i - 1] * (rho[i - 1] - V[i - 1]));
     }
+    prog.AddConstraint(rho.back().ToExpression() == 1.0);
     prog.AddCost(-rho_integral.ToExpression());
 
     const auto res = Solve(prog);
@@ -300,7 +353,8 @@ class FunnelOptimizer {
       extract_solution(res, V[i]);
     }
     // rho integral
-    return -res.get_optimal_cost();
+    extract_solution(res, rho_integral);
+    return rho_integral.Evaluate(Environment());
   };
   void plot_funnel() {
     // fix theta_dot
@@ -320,13 +374,19 @@ class FunnelOptimizer {
     for (int iter = 0; iter < max_iter;
          iter++, prev_rho_integral = rho_integral) {
       log()->info("Step 1: Optimize L and u with V and rho fixed.");
-      find_l_u();
+      rho_integral = find_l_u();
+      log()->info(fmt::format("iter: {} 1/3\trho integral: {:.3f}", iter,
+                              rho_integral));
 
       log()->info("Step 2: Optimize u and rho with V and l fixed.");
-      find_u_rho();
+      rho_integral = find_u_rho();
+      log()->info(fmt::format("iter: {} 2/3\trho integral: {:.3f}", iter,
+                              rho_integral));
 
-      log()->info("Step 2: Optimize V and rho with u and l fixed.");
-      find_V_rho();
+      log()->info("Step 3: Optimize V and rho with u and l fixed.");
+      rho_integral = find_V_rho();
+      log()->info(fmt::format("iter: {} 3/3\trho integral: {:.3f}", iter,
+                              rho_integral));
 
       log()->info(
           fmt::format("rhos optimized for trajectory.\niter: {}\nvolume: "
