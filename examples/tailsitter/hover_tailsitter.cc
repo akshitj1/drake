@@ -24,6 +24,10 @@ using systems::analysis::FixedStateROA;
 using systems::controllers::LinearQuadraticRegulator;
 using systems::controllers::LinearQuadraticRegulatorResult;
 
+const double kThetaDeviation = 1.7;
+const double kSimulateRunTimeMax = 20.0;
+const bool kComputeROA = false;
+
 void get_roa(const Tailsitter<double>& tailsitter,
              const TailsitterState<double>& x0,
              const TailsitterInput<double>& u0, const MatrixX<double>& Q,
@@ -60,11 +64,12 @@ void simulate_hover() {
   const MatrixX<double> R{
       (VectorX<double>(kNumInputs) << 1, 1).finished().asDiagonal()};
 
-  // get_roa(*tailsitter, x0, u0, Q, R);
+  if (kComputeROA) {
+    get_roa(*tailsitter, x0, u0, Q, R);
+    return;
+  }
   auto hover_context = tailsitter->CreateDefaultContext();
 
-  //   tailsitter->get_input_port(0).FixValue(hover_context.get(),
-  //                                          u0.CopyToVector());
   hover_context->SetContinuousState(x0.CopyToVector());
   hover_context->FixInputPort(0, u0);
 
@@ -78,17 +83,16 @@ void simulate_hover() {
   Simulator<double> simulator(*diagram);
 
   TailsitterState<double> x_initial = x0;
-  x_initial.set_theta(x0.theta() + 0.1);
+  x_initial.set_theta(x0.theta() + kThetaDeviation);
 
   simulator.get_mutable_context()
       .get_mutable_continuous_state_vector()
       .SetFromVector(x_initial.CopyToVector());
 
   simulator.Initialize();
-  simulator.set_monitor([x0](const systems::Context<double>& root_context) {
-    if (is_approx_equal_abstol(
-            root_context.get_continuous_state().CopyToVector(),
-            x0.CopyToVector(), 1e-4)) {
+  simulator.set_monitor([x0](const systems::Context<double>& context) {
+    if (is_approx_equal_abstol(context.get_continuous_state().CopyToVector(),
+                               x0.CopyToVector(), 1e-4)) {
       return systems::EventStatus::ReachedTermination(nullptr,
                                                       "Goal achieved.");
     }
@@ -99,7 +103,7 @@ void simulate_hover() {
   // The following accuracy is necessary for the example to satisfy its
   // ending state tolerances.
   simulator.get_mutable_integrator().set_target_accuracy(5e-5);
-  auto status = simulator.AdvanceTo(10.0);
+  auto status = simulator.AdvanceTo(kSimulateRunTimeMax);
   if (status.kReachedTerminationCondition) {
     log()->info(fmt::format("achieved desired state in {:.2f} s",
                             status.return_time()));

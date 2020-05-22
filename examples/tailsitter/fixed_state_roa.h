@@ -40,9 +40,11 @@ class FixedStateROA {
   const int num_states, num_inputs;
 
   VectorX<Polynomial> u_bar;
+  double trace_V0;
   Polynomial V;
-  Polynomial V_dot;
+  VectorX<Polynomial> f_cl_poly;
   Polynomial lambda;
+  Polynomial rho;
 
   const int u_deg = 1, l_deg = u_deg + 1, f_deg = 2, V_deg = 2;
   const int max_iter = 10;
@@ -62,38 +64,75 @@ class FixedStateROA {
     x_bar_vars = Variables(x_bar);
     u_bar = to_poly(-_lqr_res.K * x_bar);
     // lyapunov guess
-    V = to_poly(x_bar.dot(_lqr_res.S * x_bar));
-    V_dot = Polynomial(V.Jacobian(x_bar) * f_approx_poly());
+    lyapunov_guess(_lqr_res.S);
+    f_cl_poly = f_approx_poly();
 
-    const double rho = find_rho();
-    log()->info(fmt::format("rho max: {:3f}", rho));
-    // theta plot
-    plot_funnel(rho, 2);
-  }
-  double find_rho() {
-    // performs line search on rho, for each rho attempts to check sos
-    // feasibility for lambda
-    const double kPrec = 0.01;
-    double lb = 0.0, ub = 100.0;
-    double rho;
-    for (rho = (lb + ub) / 2; ub - lb >= kPrec; rho = (lb + ub) / 2) {
-      MathematicalProgram prog;
-      prog.AddIndeterminates(x_bar);
-      lambda = prog.NewSosPolynomial(x_bar_vars, l_deg).first;
-      prog.AddSosConstraint(-V_dot + lambda * (V - rho));
-      auto res = Solve(prog);
-      if (res.is_success())
-        lb = rho;
-      else
-        ub = rho;
-      log()->info(fmt::format("rho: {:.3f}", rho));
+    rho = Polynomial(0.01);
+    double prev_rho = 0.0, cur_rho;
+    for (int iter = 0; iter < 20; iter++) {
+      log()->info(
+          fmt::format("Step {} 1/2: find l with rho and V fixed", iter));
+      find_l();
+      log()->info(
+          fmt::format("Step {} 2/2: find rho and V with l fixed", iter));
+      cur_rho = find_V_rho();
+      log()->info(fmt::format("rho max: {:.3f}\t rho gain: {:.3f}", cur_rho,
+                              cur_rho - prev_rho));
+      prev_rho = cur_rho;
     }
-    rho = lb;
-    return rho;
+    // theta plot
+    plot_funnel(rho.Evaluate(Environment()), 2);
+  }
+
+  Polynomial get_V_dot() { return V.Jacobian(x_bar) * f_cl_poly; }
+
+  void lyapunov_guess(const MatrixX<double>& S) {
+    V = to_poly(x_bar.dot(S * x_bar));
+    trace_V0 = S.trace();
+  }
+  // find lambda with V and rho fixed
+  void find_l() {
+    MathematicalProgram prog;
+    prog.AddIndeterminates(x_bar);
+    lambda = prog.NewSosPolynomial(x_bar_vars, l_deg).first;
+    auto gamma = prog.NewContinuousVariables<1>("gamma")[0];
+    prog.AddConstraint(gamma <= 0);
+    prog.AddSosConstraint(gamma - get_V_dot() + lambda * (V - rho));
+    prog.AddCost(gamma);
+    auto res = Solve(prog);
+    assert(res.is_success());
+    extract_solution(res, lambda);
+  }
+
+  // find V and rho with lambda fixed
+  double find_V_rho() {
+    MathematicalProgram prog;
+    prog.AddIndeterminates(x_bar);
+
+    auto V_S = prog.NewSosPolynomial(x_bar.template cast<Monomial>());
+    assert(V_S.second.rows() == num_states && V_S.second.cols() == num_states);
+    V = V_S.first;
+    prog.AddConstraint(trace(V_S.second) == trace_V0);
+
+    rho = Polynomial(prog.NewContinuousVariables<1>("rho")[0]);
+    prog.AddConstraint(rho.ToExpression() >= 0);
+
+    prog.AddSosConstraint(-get_V_dot() + lambda * (V - rho));
+
+    prog.AddCost(-rho.ToExpression());
+
+    auto res = Solve(prog);
+    assert(res.is_success());
+
+    extract_solution(res, V);
+    extract_solution(res, rho);
+    return rho.Evaluate(Environment());
   }
 
  private:
-  Polynomial to_poly(const Expression& e) { return Polynomial(e, x_bar_vars); }
+  Polynomial to_poly(const Expression& e) {
+    return clean(Polynomial(e, x_bar_vars));
+  }
   VectorX<Polynomial> to_poly(const VectorX<Expression>& e) {
     return e.unaryExpr(
         [this](const Expression& _e) { return this->to_poly(_e); });
@@ -128,8 +167,7 @@ class FixedStateROA {
 
     const VectorX<Polynomial> f_poly =
         f.unaryExpr([f_approx_env, this](const Expression& xi_dot) {
-          return clean(
-              to_poly(TaylorExpand(xi_dot, f_approx_env, this->f_deg)));
+          return to_poly(TaylorExpand(xi_dot, f_approx_env, this->f_deg));
         });
 
     // our f0 should be zero. todo: assert zero?
@@ -140,6 +178,14 @@ class FixedStateROA {
 
     return f_poly;
   }
+  static Expression trace(const MatrixX<Variable>& X) {
+    // built-in eigen cannot convert variable sum to expression
+    assert(X.rows() == X.cols());
+    Expression trace_X;
+    for (int i = 0; i < X.rows(); i++) trace_X += X(i, i);
+    return trace_X;
+  }
+
   void plot_funnel(const double& rho, const int& plot_x_idx = 0) {
     Environment plot_env;
     for (int i = 0; i < num_states; i++)
