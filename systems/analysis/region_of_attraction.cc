@@ -212,57 +212,6 @@ Expression RegionOfAttraction(const System<double>& system,
   return V;
 }
 
-MatrixX<double> RegionOfAttractionP(const System<double>& system,
-                                    const Context<double>& context) {
-  system.ValidateContext(context);
-  DRAKE_THROW_UNLESS(context.has_only_continuous_state());
-
-  const int num_states = context.num_continuous_states();
-  VectorX<double> x0 = context.get_continuous_state_vector().CopyToVector();
-
-  // Check that x0 is a fixed point.
-  VectorX<double> xdot0 =
-      system.EvalTimeDerivatives(context).get_vector().CopyToVector();
-  DRAKE_THROW_UNLESS(xdot0.template lpNorm<Eigen::Infinity>() <= 1e-14);
-
-  const auto symbolic_system = system.ToSymbolic();
-  const auto symbolic_context = symbolic_system->CreateDefaultContext();
-  // Time and parameters should just be doubles (not Variables).
-  symbolic_context->SetTime(0.0);
-  symbolic_context->get_mutable_parameters().SetFrom(context.get_parameters());
-
-  // Subroutines should create their own programs to avoid incidental
-  // sharing of costs or constraints.  However, we pass x and expect that
-  // sub-programs will use AddIndeterminates(x).
-  MathematicalProgram prog;
-  // Define the relative coordinates: x_bar = x - x0
-  const auto x_bar = prog.NewIndeterminates(num_states, "x");
-
-  Environment x0env;
-  for (int i = 0; i < num_states; i++) {
-    x0env.insert(x_bar(i), 0.0);
-  }
-
-  // Evaluate the dynamics (in relative coordinates).
-  symbolic_context->SetContinuousState(x0 + x_bar);
-  const VectorX<Expression> f =
-      symbolic_system->EvalTimeDerivatives(*symbolic_context)
-          .get_vector()
-          .CopyToVector();
-
-  Expression V;
-
-  // Solve a Lyapunov equation to find a candidate.
-  const Eigen::MatrixXd A = Evaluate(Jacobian(f, x_bar), x0env);
-  const Eigen::MatrixXd Q = Eigen::MatrixXd::Identity(num_states, num_states);
-  const Eigen::MatrixXd P = math::RealContinuousLyapunovEquation(A, Q);
-  V = x_bar.dot(P * x_bar);
-  const Expression Vdot = V.Jacobian(x_bar).dot(f);
-
-  const double rho = FixedLyapunovConvex(x_bar, V, Vdot);
-  return P / rho;
-}
-
 }  // namespace analysis
 }  // namespace systems
 }  // namespace drake

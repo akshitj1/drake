@@ -87,7 +87,8 @@ drake_cc_library(
         "//common:essential",
         "//common/trajectories:piecewise_polynomial",
         "//math:quadratic_form",
-        "//systems/analysis:region_of_attraction",
+        "//solvers:mathematical_program",
+        "//solvers:solve",
         "//systems/controllers:finite_horizon_linear_quadratic_regulator",
         "//systems/framework:leaf_system",
         "//systems/primitives:linear_system",
@@ -104,6 +105,31 @@ drake_cc_binary(
         ":trajectory_generator",
         "//systems/analysis:simulator",
         "//systems/framework:diagram_builder",
+        "@gflags",
+    ],
+)
+
+drake_cc_library(
+    name = "fixed_state_roa",
+    srcs = ["fixed_state_roa.h"],
+    deps = [
+        "//common:default_scalars",
+        "//common:essential",
+        "//solvers:mathematical_program",
+        "//solvers:solve",
+        "//systems/controllers:linear_quadratic_regulator",
+        "//systems/framework:leaf_system",
+    ],
+)
+
+drake_cc_binary(
+    name = "hover_tailsitter",
+    srcs = ["hover_tailsitter.cc"],
+    deps = [
+        ":fixed_state_roa",
+        ":tailsitter_plant",
+        "//systems/controllers:linear_quadratic_regulator",
+        "//systems/primitives:linear_system",
         "@gflags",
     ],
 )

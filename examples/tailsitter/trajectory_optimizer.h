@@ -113,7 +113,7 @@ class TrajectoryOptimizer {
           result.get_solver_id().name());
       throw;
     }
-    log()->info("found optimal perching trajectory...");
+    log()->info("found optimal trajectory...");
 
     state_opt = optimizer.ReconstructStateTrajectory(result);
     input_opt = optimizer.ReconstructInputTrajectory(result);

@@ -54,7 +54,7 @@ void swing_up_trajectory(const PendulumPlant<double>& pendulum,
   uu.set_tau(kTorqueLimit);
 
   PendulumInput<double> u_cost;
-  u_cost.set_tau(10);
+  u_cost.set_tau(0.1);
 
   systems::trajectory_optimization::TrajectoryOptimizer traj_optimizer(
       pendulum);

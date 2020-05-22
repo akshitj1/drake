@@ -51,8 +51,8 @@ void simulate_trajectory(const tailsitter::Trajectory& trajectory) {
   log()->info("lqr S, K matrices computed.");
 
   log()->info("computing trajectory funnel");
-  systems::analysis::TrajectoryFunnel(*tailsitter, state_opt, input_opt,
-                                      lqr_res);
+  systems::analysis::FunnelOptimizer(*tailsitter, state_opt, input_opt,
+                                     lqr_res);
   log()->info("Funnel computed");
 
   auto ts_controller =
@@ -84,6 +84,7 @@ void simulate_trajectory(const tailsitter::Trajectory& trajectory) {
       final_state_est.x(), final_state_est.z(),
       180 * final_state_est.theta() / M_PI));
 }
+
 }  // namespace
 
 }  // namespace tailsitter

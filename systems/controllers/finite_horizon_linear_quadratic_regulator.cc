@@ -31,8 +31,7 @@ class RiccatiSystem : public LeafSystem<double> {
   RiccatiSystem(const System<double>& system, const Context<double>& context,
                 const Eigen::Ref<const Eigen::MatrixXd>& Q,
                 const Eigen::Ref<const Eigen::MatrixXd>& R,
-                const Trajectory<double>& x0,
-                const Trajectory<double>& u0,
+                const Trajectory<double>& x0, const Trajectory<double>& u0,
                 const FiniteHorizonLinearQuadraticRegulatorOptions& options)
       : system_(System<double>::ToAutoDiffXd(system)),
         input_port_(
@@ -81,8 +80,8 @@ class RiccatiSystem : public LeafSystem<double> {
     context_->SetTime(system_time);
 
     // Get (time-varying) linearization of the plant.
-    auto autodiff_args = math::initializeAutoDiffTuple(
-        x0_.value(system_time), u0_.value(system_time));
+    auto autodiff_args = math::initializeAutoDiffTuple(x0_.value(system_time),
+                                                       u0_.value(system_time));
     context_->SetContinuousState(std::get<0>(autodiff_args));
     input_port_->FixValue(context_.get(), std::get<1>(autodiff_args));
 
