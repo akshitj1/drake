@@ -128,6 +128,8 @@ drake_cc_binary(
     deps = [
         ":fixed_state_roa",
         ":tailsitter_plant",
+        "//common:is_approx_equal_abstol",
+        "//systems/analysis:simulator",
         "//systems/controllers:linear_quadratic_regulator",
         "//systems/primitives:linear_system",
         "@gflags",
