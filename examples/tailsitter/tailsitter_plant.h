@@ -19,7 +19,7 @@ class Tailsitter final : public systems::LeafSystem<T> {
   // https://github.com/RobotLocomotion/drake/blob/BeforeCCode/examples/Glider/GliderPlant.m
   static constexpr double kG = 9.81, kRho = 1.204;  // atm density
   static constexpr double kMass = 0.082, kInertia = 0.0015;
-  static constexpr double kTailS = 0.0147, kWingS = 0.0885;
+  static constexpr double kTailS = 0.0147, kWingS = 0.0385;
   static constexpr double kLe = 0.022, kL = 0.27, kLw = 0.0;
   static constexpr double kPropDiameter = kL / 2,
                           kPropArea =
@@ -46,6 +46,19 @@ class Tailsitter final : public systems::LeafSystem<T> {
   void CopyStateOut(const drake::systems::Context<T>& context,
                     TailsitterState<T>* output) const {
     *output = get_state(context);
+  }
+
+  static TailsitterInput<double> input_limit_lower() {
+    TailsitterInput<double> input_l;
+    input_l.set_prop_throttle(0);
+    input_l.set_phi_dot(-kPhiDotLimit);
+    return input_l;
+  }
+  static TailsitterInput<double> input_limit_upper() {
+    TailsitterInput<double> input_u;
+    input_u.set_prop_throttle(1.0);
+    input_u.set_phi_dot(kPhiDotLimit);
+    return input_u;
   }
 
   static const TailsitterState<T>& get_state(const systems::Context<T>& ctx) {

@@ -58,6 +58,21 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "tailsitter_geometry",
+    srcs = [],
+    hdrs = ["tailsitter_geometry.h"],
+    deps = [
+        ":tailsitter_plant",
+        ":tailsitter_vector_types",
+        "//geometry:geometry_roles",
+        "//geometry:scene_graph",
+        "//math:geometric_transform",
+        "//systems/framework:diagram_builder",
+        "//systems/framework:leaf_system",
+    ],
+)
+
+drake_cc_library(
     name = "trajectory_generator",
     srcs = [],
     hdrs = ["trajectory_generator.h"],
@@ -127,11 +142,14 @@ drake_cc_binary(
     srcs = ["hover_tailsitter.cc"],
     deps = [
         ":fixed_state_roa",
+        ":tailsitter_geometry",
         ":tailsitter_plant",
         "//common:is_approx_equal_abstol",
+        "//geometry:geometry_visualization",
         "//systems/analysis:simulator",
         "//systems/controllers:linear_quadratic_regulator",
         "//systems/primitives:linear_system",
+        "//systems/primitives:saturation",
         "@gflags",
     ],
 )

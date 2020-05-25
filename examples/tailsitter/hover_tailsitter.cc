@@ -5,12 +5,15 @@
 #include "drake/common/is_approx_equal_abstol.h"
 #include "drake/examples/tailsitter/common.h"
 #include "drake/examples/tailsitter/fixed_state_roa.h"
+#include "drake/examples/tailsitter/tailsitter_geometry.h"
 #include "drake/examples/tailsitter/tailsitter_plant.h"
+#include "drake/geometry/geometry_visualization.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/controllers/linear_quadratic_regulator.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/primitives/linear_system.h"
+#include "drake/systems/primitives/saturation.h"
 
 namespace drake {
 namespace examples {
@@ -19,14 +22,23 @@ namespace {
 using namespace tailsitter;
 using systems::Context;
 using systems::DiagramBuilder;
+using systems::Saturation;
 using systems::Simulator;
 using systems::analysis::FixedStateROA;
 using systems::controllers::LinearQuadraticRegulator;
 using systems::controllers::LinearQuadraticRegulatorResult;
 
-const double kThetaDeviation = 1.7;
+DEFINE_bool(compute_roa, false, "To compute region of attraction");
+DEFINE_double(realtime_factor, 1.0, "Playback speed");
+DEFINE_double(simulation_sec, 20.0, "Number of seconds to simulate.");
+DEFINE_double(dev_x, 0.0, "X Deviation");
+DEFINE_double(dev_z, 0.0, "Z Deviation");
+DEFINE_double(dev_theta, M_PI_2, "Theta Deviation");
+
+const double kThetaDeviation = M_PI_2;
 const double kSimulateRunTimeMax = 20.0;
 const bool kComputeROA = false;
+const double kSimRate = 0.1;
 
 void get_roa(const Tailsitter<double>& tailsitter,
              const TailsitterState<double>& x0,
@@ -43,13 +55,24 @@ void get_roa(const Tailsitter<double>& tailsitter,
 
   LinearQuadraticRegulatorResult lqr_res =
       LinearQuadraticRegulator(f_lin->A(), f_lin->B(), Q, R);
-  FixedStateROA(tailsitter, x0.CopyToVector(), u0.CopyToVector(), lqr_res);
+
+  TailsitterInput<double> input_l, input_u;
+  input_l.set_prop_throttle(0.0);
+  input_u.set_prop_throttle(1.0);
+  input_l.set_phi_dot(-tailsitter.kPhiDotLimit);
+  input_u.set_phi_dot(tailsitter.kPhiDotLimit);
+  FixedStateROA(tailsitter, x0.CopyToVector(), u0.CopyToVector(),
+                input_l.CopyToVector(), input_u.CopyToVector(), lqr_res);
 }
 
 void simulate_hover() {
   DiagramBuilder<double> builder;
   auto tailsitter = builder.AddSystem<Tailsitter<double>>();
   tailsitter->set_name("tailsitter");
+  auto scene_graph = builder.AddSystem<geometry::SceneGraph>();
+  TailsitterGeometry::AddToBuilder(&builder, tailsitter->get_output_port(0),
+                                   scene_graph);
+  ConnectDrakeVisualizer(&builder, *scene_graph);
 
   TailsitterState<double> x0;
   x0.set_theta(M_PI / 2);
@@ -64,7 +87,7 @@ void simulate_hover() {
   const MatrixX<double> R{
       (VectorX<double>(kNumInputs) << 1, 1).finished().asDiagonal()};
 
-  if (kComputeROA) {
+  if (FLAGS_compute_roa) {
     get_roa(*tailsitter, x0, u0, Q, R);
     return;
   }
@@ -76,14 +99,22 @@ void simulate_hover() {
   auto controller = builder.AddSystem(
       LinearQuadraticRegulator(*tailsitter, *hover_context, Q, R));
   controller->set_name("controller");
+
+  auto saturation = builder.AddSystem<Saturation<double>>(
+      Tailsitter<double>::input_limit_lower().CopyToVector(),
+      Tailsitter<double>::input_limit_upper().CopyToVector());
+
   builder.Connect(tailsitter->get_output_port(0), controller->get_input_port());
-  builder.Connect(controller->get_output_port(), tailsitter->get_input_port(0));
+  builder.Connect(controller->get_output_port(), saturation->get_input_port());
+  builder.Connect(saturation->get_output_port(), tailsitter->get_input_port(0));
 
   auto diagram = builder.Build();
   Simulator<double> simulator(*diagram);
 
   TailsitterState<double> x_initial = x0;
-  x_initial.set_theta(x0.theta() + kThetaDeviation);
+  x_initial.set_theta(x0.theta() + FLAGS_dev_theta);
+  x_initial.set_x(x0.x() + FLAGS_dev_x);
+  x_initial.set_z(x0.z() + FLAGS_dev_z);
 
   simulator.get_mutable_context()
       .get_mutable_continuous_state_vector()
@@ -98,12 +129,12 @@ void simulate_hover() {
     }
     return systems::EventStatus::Succeeded();
   });
-  simulator.set_target_realtime_rate(0.0);
+  simulator.set_target_realtime_rate(FLAGS_realtime_factor);
 
   // The following accuracy is necessary for the example to satisfy its
   // ending state tolerances.
   simulator.get_mutable_integrator().set_target_accuracy(5e-5);
-  auto status = simulator.AdvanceTo(kSimulateRunTimeMax);
+  auto status = simulator.AdvanceTo(FLAGS_simulation_sec);
   if (status.kReachedTerminationCondition) {
     log()->info(fmt::format("achieved desired state in {:.2f} s",
                             status.return_time()));
