@@ -168,3 +168,22 @@ drake_cc_binary(
         "@gflags",
     ],
 )
+
+drake_cc_binary(
+    name = "foo_plot",
+    srcs = ["foo_plot.cc"],
+    deps = [
+        "@gflags",
+        "@vtk//:vtkChartsCore",
+        "@vtk//:vtkCommonCore",
+        "@vtk//:vtkCommonDataModel",
+        "@vtk//:vtkInteractionStyle",
+        "@vtk//:vtkRenderingContext2D",
+        "@vtk//:vtkRenderingContextOpenGL2",
+        "@vtk//:vtkRenderingCore",
+        "@vtk//:vtkRenderingFreeType",
+        # "@vtk//:vtkRenderingGL2PSOpenGL2",
+        "@vtk//:vtkRenderingOpenGL2",
+        "@vtk//:vtkViewsContext2D",
+    ],
+)
