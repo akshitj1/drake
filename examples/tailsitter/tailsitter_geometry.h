@@ -69,6 +69,8 @@ class TailsitterGeometry final : public systems::LeafSystem<double> {
   // The frames for the two links.
   geometry::FrameId wing_link_id{};
   geometry::FrameId elevon_link_id{};
+  geometry::FrameId prop_link_id{};
+
   const double elevon_height = 2 * Tailsitter<double>::kLe,
                elevon_width = Tailsitter<double>::kTailS / elevon_height,
                wing_width = elevon_width,
@@ -99,7 +101,6 @@ class TailsitterGeometry final : public systems::LeafSystem<double> {
 
     elevon_link_id = scene_graph->RegisterFrame(source_id, wing_link_id,
                                                 GeometryFrame("elevon_link"));
-
     id = scene_graph->RegisterGeometry(
         source_id, elevon_link_id,
         make_unique<GeometryInstance>(
@@ -108,6 +109,19 @@ class TailsitterGeometry final : public systems::LeafSystem<double> {
             "elevon_link"));
     scene_graph->AssignRole(
         source_id, id, MakePhongIllustrationProperties(Vector4d(0, 1, 0, 1)));
+
+    prop_link_id = scene_graph->RegisterFrame(source_id, wing_link_id,
+                                              GeometryFrame("prop_link"));
+    id = scene_graph->RegisterGeometry(
+        source_id, prop_link_id,
+        make_unique<GeometryInstance>(
+            math::RigidTransformd(math::RotationMatrixd::MakeYRotation(M_PI_2),
+                                  Vector3d(-wing_height / 2, 0., 0.)),
+            make_unique<Cylinder>(Tailsitter<double>::kPropDiameter / 2,
+                                  tailsitter_thick),
+            "prop_link"));
+    scene_graph->AssignRole(
+        source_id, id, MakePhongIllustrationProperties(Vector4d(0, 0, 1, 0.5)));
   }
 
   void OutputGeometryPose(const systems::Context<double>& context,
@@ -121,22 +135,15 @@ class TailsitterGeometry final : public systems::LeafSystem<double> {
         math::RotationMatrixd::MakeYRotation(state.theta()),
         Vector3d(state.x(), 0, state.z()));
 
-    // Vector2<double> elevon_pos =
-    //     Vector2<double>(state.x(), state.z()) -
-    //     rotate(Vector2<double>(wing_height / 2, 0) +
-    //                rotate(Vector2<double>(elevon_height / 2, 0),
-    //                state.phi()),
-    //            state.theta());
-
-    // const math::RigidTransformd elevon_pose(
-    //     math::RotationMatrixd::MakeYRotation(state.theta() + state.phi()),
-    //     Vector3d(elevon_pos(0), 0, elevon_pos(1)));
-
     const math::RigidTransformd elevon_pose(
         math::RotationMatrixd::MakeYRotation(state.phi()),
         Vector3d(wing_height / 2, 0, 0));
 
-    *poses = {{wing_link_id, wing_pose}, {elevon_link_id, elevon_pose}};
+    const math::RigidTransformd prop_pose;
+
+    *poses = {{wing_link_id, wing_pose},
+              {elevon_link_id, elevon_pose},
+              {prop_link_id, prop_pose}};
   }
   static Vector2<double> rotate(const Vector2<double>& x, const double& theta) {
     return Vector2<double>(x(0) * cos(theta) - x(1) * sin(theta),
