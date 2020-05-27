@@ -5,6 +5,7 @@
 #include "drake/common/is_approx_equal_abstol.h"
 #include "drake/examples/tailsitter/common.h"
 #include "drake/examples/tailsitter/fixed_state_roa.h"
+#include "drake/examples/tailsitter/plot_util.h"
 #include "drake/examples/tailsitter/tailsitter_geometry.h"
 #include "drake/examples/tailsitter/tailsitter_plant.h"
 #include "drake/geometry/geometry_visualization.h"
@@ -14,6 +15,7 @@
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/primitives/linear_system.h"
 #include "drake/systems/primitives/saturation.h"
+#include "drake/systems/primitives/signal_logger.h"
 
 namespace drake {
 namespace examples {
@@ -29,7 +31,7 @@ using systems::controllers::LinearQuadraticRegulator;
 using systems::controllers::LinearQuadraticRegulatorResult;
 
 DEFINE_bool(compute_roa, false, "To compute region of attraction");
-DEFINE_double(realtime_factor, 1.0, "Playback speed");
+DEFINE_double(realtime_factor, 0.0, "Playback speed");
 DEFINE_double(simulation_sec, 20.0, "Number of seconds to simulate.");
 DEFINE_double(dev_x, 0.0, "X Deviation");
 DEFINE_double(dev_z, 0.0, "Z Deviation");
@@ -107,6 +109,10 @@ void simulate_hover() {
   builder.Connect(tailsitter->get_output_port(0), controller->get_input_port());
   builder.Connect(controller->get_output_port(), saturation->get_input_port());
   builder.Connect(saturation->get_output_port(), tailsitter->get_input_port(0));
+  // record state for plotting later
+  systems::SignalLogger<double>* state_logger =
+      systems::LogOutput(tailsitter->get_output_port(0), &builder);
+  state_logger->set_publish_period(0.1);
 
   auto diagram = builder.Build();
   Simulator<double> simulator(*diagram);
@@ -135,6 +141,13 @@ void simulate_hover() {
   // ending state tolerances.
   simulator.get_mutable_integrator().set_target_accuracy(5e-5);
   auto status = simulator.AdvanceTo(FLAGS_simulation_sec);
+
+  drake::Plotter plotter;
+  plotter.plot(state_logger->sample_times(), state_logger->data(),
+               TailsitterState<double>::GetCoordinateNames());
+  // std::cout << "state is: " << state_logger->data()(int(1 / 0.1)) <<
+  // std::endl;
+
   if (status.kReachedTerminationCondition) {
     log()->info(fmt::format("achieved desired state in {:.2f} s",
                             status.return_time()));

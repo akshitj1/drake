@@ -137,11 +137,30 @@ drake_cc_library(
     ],
 )
 
+drake_cc_library(
+    name = "plot_util",
+    hdrs = ["plot_util.h"],
+    deps = [
+        "//common:essential",
+        "@vtk//:vtkChartsCore",
+        "@vtk//:vtkCommonCore",
+        "@vtk//:vtkCommonDataModel",
+        "@vtk//:vtkInteractionStyle",
+        "@vtk//:vtkRenderingContext2D",
+        "@vtk//:vtkRenderingContextOpenGL2",
+        "@vtk//:vtkRenderingCore",
+        "@vtk//:vtkRenderingFreeType",
+        "@vtk//:vtkRenderingOpenGL2",
+        "@vtk//:vtkViewsContext2D",
+    ],
+)
+
 drake_cc_binary(
     name = "hover_tailsitter",
     srcs = ["hover_tailsitter.cc"],
     deps = [
         ":fixed_state_roa",
+        ":plot_util",
         ":tailsitter_geometry",
         ":tailsitter_plant",
         "//common:is_approx_equal_abstol",
@@ -150,6 +169,7 @@ drake_cc_binary(
         "//systems/controllers:linear_quadratic_regulator",
         "//systems/primitives:linear_system",
         "//systems/primitives:saturation",
+        "//systems/primitives:signal_logger",
         "@gflags",
     ],
 )
@@ -166,24 +186,5 @@ drake_cc_binary(
         "//systems/controllers:finite_horizon_linear_quadratic_regulator",
         "//systems/framework:diagram_builder",
         "@gflags",
-    ],
-)
-
-drake_cc_binary(
-    name = "foo_plot",
-    srcs = ["foo_plot.cc"],
-    deps = [
-        "@gflags",
-        "@vtk//:vtkChartsCore",
-        "@vtk//:vtkCommonCore",
-        "@vtk//:vtkCommonDataModel",
-        "@vtk//:vtkInteractionStyle",
-        "@vtk//:vtkRenderingContext2D",
-        "@vtk//:vtkRenderingContextOpenGL2",
-        "@vtk//:vtkRenderingCore",
-        "@vtk//:vtkRenderingFreeType",
-        # "@vtk//:vtkRenderingGL2PSOpenGL2",
-        "@vtk//:vtkRenderingOpenGL2",
-        "@vtk//:vtkViewsContext2D",
     ],
 )

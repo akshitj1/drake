@@ -206,6 +206,7 @@ licenses([
             "vtkOStreamWrapper.h",
             "vtkOStrStreamWrapper.h",
             "vtkPoints.h",
+            "vtkStringArray.h",
             "vtkSetGet.h",
             "vtkSmartPointer.h",
             "vtkSmartPointerBase.h",
@@ -1038,6 +1039,7 @@ licenses([
             "vtkWindowToImageFilter.h",
             "vtkRenderWindowInteractor.h",
             "vtkTextRenderer.h",
+            "vtkTextProperty.h",
         ],
         deps = [
             ":vtkCommonColor",
