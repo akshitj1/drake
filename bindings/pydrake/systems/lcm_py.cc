@@ -3,7 +3,6 @@
 #include "pybind11/eval.h"
 #include "pybind11/pybind11.h"
 
-#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/systems/lcm_py_bind_cpp_serializers.h"
@@ -118,7 +117,8 @@ PYBIND11_MODULE(lcm, m) {
     cls  // BR
         .def("CreateDefaultValue", &Class::CreateDefaultValue,
             cls_doc.CreateDefaultValue.doc)
-        .def("Deserialize",
+        .def(
+            "Deserialize",
             [](const Class& self, py::bytes message_bytes,
                 AbstractValue* abstract_value) {
               std::string str = message_bytes;
@@ -126,7 +126,8 @@ PYBIND11_MODULE(lcm, m) {
             },
             py::arg("message_bytes"), py::arg("abstract_value"),
             cls_doc.Deserialize.doc)
-        .def("Serialize",
+        .def(
+            "Serialize",
             [](const Class& self, const AbstractValue& abstract_value) {
               std::vector<uint8_t> message_bytes;
               self.Serialize(abstract_value, &message_bytes);

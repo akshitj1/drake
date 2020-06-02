@@ -1,9 +1,15 @@
+# -*- python -*-
+
 package(default_visibility = ["//visibility:private"])
 
 exports_files(
+    # Keep this list alpha-sorted.
     srcs = glob([
-        "ycb/meshes/**",
+        "dishes/**",
         "franka_description/**",
-    ]) or fail("No match"),
+        "jaco_description/**",
+        "skydio_2/**",
+        "ycb/meshes/**",
+    ], allow_empty = False),
     visibility = ["//visibility:public"],
 )

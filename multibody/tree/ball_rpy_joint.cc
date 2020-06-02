@@ -28,7 +28,7 @@ std::unique_ptr<Joint<ToScalar>> BallRpyJoint<T>::TemplatedDoCloneToScalar(
   joint_clone->set_acceleration_limits(this->acceleration_lower_limits(),
                                        this->acceleration_upper_limits());
 
-  return std::move(joint_clone);
+  return joint_clone;
 }
 
 template <typename T>
@@ -56,10 +56,11 @@ template <typename T>
 std::unique_ptr<typename Joint<T>::BluePrint>
 BallRpyJoint<T>::MakeImplementationBlueprint() const {
   auto blue_print = std::make_unique<typename Joint<T>::BluePrint>();
-  blue_print->mobilizers_.push_back(
-      std::make_unique<internal::SpaceXYZMobilizer<T>>(this->frame_on_parent(),
-                                                       this->frame_on_child()));
-  return std::move(blue_print);
+  auto ballrpy_mobilizer = std::make_unique<internal::SpaceXYZMobilizer<T>>(
+      this->frame_on_parent(), this->frame_on_child());
+  ballrpy_mobilizer->set_default_position(this->default_positions());
+  blue_print->mobilizers_.push_back(std::move(ballrpy_mobilizer));
+  return blue_print;
 }
 
 }  // namespace multibody

@@ -12,13 +12,12 @@ import webbrowser
 import numpy as np
 
 from drake import lcmt_viewer_load_robot
+from pydrake.common.value import AbstractValue
 from pydrake.common.eigen_geometry import Quaternion, Isometry3
 from pydrake.geometry import DispatchLoadMessage, SceneGraph
 from pydrake.lcm import DrakeLcm, Subscriber
 from pydrake.math import RigidTransform, RotationMatrix
-from pydrake.systems.framework import (
-    AbstractValue, LeafSystem, PublishEvent, TriggerType
-)
+from pydrake.systems.framework import LeafSystem, PublishEvent, TriggerType
 from pydrake.systems.rendering import PoseBundle
 from pydrake.multibody.plant import ContactResults
 import pydrake.perception as mut
@@ -29,6 +28,15 @@ with warnings.catch_warnings():
     warnings.filterwarnings(
         "ignore", category=ImportWarning,
         message="can't resolve package from __spec__")
+    # TODO(SeanCurtis-TRI): Meshcat modified itself from a conditional
+    # import of IPython to an unconditional import. IPython eventually
+    # depends on imp. If the dependency becomes conditional or the
+    # ultimate dependency upgrades from imp to importlib, this can be
+    # removed.
+    warnings.filterwarnings(
+        "ignore", message="the imp module is deprecated",
+        category=DeprecationWarning
+    )
     import meshcat
 import meshcat.geometry as g  # noqa
 import meshcat.transformations as tf  # noqa
@@ -343,10 +351,10 @@ class MeshcatVisualizer(LeafSystem):
                 else:
                     robot_name = "world"
                     link_name = frame_name
-                if (robot_name in self.frames_to_draw.keys() and
-                        link_name in self.frames_to_draw[robot_name]):
-                    prefix = (self.prefix + '/' + source_name + '/' +
-                              str(link.robot_num) + '/' + frame_name)
+                if (robot_name in self.frames_to_draw.keys()
+                        and link_name in self.frames_to_draw[robot_name]):
+                    prefix = (self.prefix + '/' + source_name + '/'
+                              + str(link.robot_num) + '/' + frame_name)
                     AddTriad(
                         self.vis,
                         name="frame",
@@ -370,9 +378,9 @@ class MeshcatVisualizer(LeafSystem):
             model_id = pose_bundle.get_model_instance_id(frame_i)
             # The MBP parsers only register the plant as a nameless source.
             # TODO(russt): Use a more textual naming convention here?
-            pose_matrix = pose_bundle.get_pose(frame_i)
+            pose_matrix = pose_bundle.get_transform(frame_i)
             self.vis[self.prefix][source_name][str(model_id)][frame_name]\
-                .set_transform(pose_matrix.matrix())
+                .set_transform(pose_matrix.GetAsMatrix4())
 
 
 class MeshcatContactVisualizer(LeafSystem):
@@ -454,7 +462,7 @@ class MeshcatContactVisualizer(LeafSystem):
             (source_name, frame_name) = self._meshcat_viz._parse_name(
                 pose_bundle.get_name(frame_i))
             model_instance = pose_bundle.get_model_instance_id(frame_i)
-            pose_matrix = pose_bundle.get_pose(frame_i)
+            pose_matrix = pose_bundle.get_transform(frame_i)
             _, frame_name = frame_name.split("::")
             key = (model_instance, frame_name)
             X_WB_map[key] = pose_matrix
@@ -473,8 +481,8 @@ class MeshcatContactVisualizer(LeafSystem):
             if old_bodies == new_bodies:
                 # Reaching here means that `old` and `new`
                 # describe contact between the same pair of bodies.
-                v = np.sqrt(old.info.separation_speed()**2 +
-                            old.info.slip_speed()**2)
+                v = np.sqrt(old.info.separation_speed()**2
+                            + old.info.slip_speed()**2)
                 if np.linalg.norm(new.p_BC - old.p_BC) < v * dt:
                     old.info = new.info
                     old.p_BC = new.p_BC

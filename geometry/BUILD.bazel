@@ -23,11 +23,11 @@ drake_cc_package_library(
         ":geometry_set",
         ":geometry_state",
         ":geometry_visualization",
-        ":identifier",
         ":internal_frame",
         ":internal_geometry",
         ":proximity_engine",
         ":proximity_properties",
+        ":rgba",
         ":scene_graph",
         ":scene_graph_inspector",
         ":shape_specification",
@@ -198,6 +198,7 @@ drake_cc_library(
 
 drake_cc_library(
     name = "scene_graph_inspector",
+    srcs = ["scene_graph_inspector.cc"],
     hdrs = ["scene_graph_inspector.h"],
     deps = [":geometry_state"],
 )
@@ -246,24 +247,6 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "identifier",
-    srcs = ["identifier.cc"],
-    hdrs = ["identifier.h"],
-    copts = [
-        "-Wno-cpp",
-        "-Wno-deprecated-declarations",
-    ],
-    deprecation = "The @drake//geometry:identifier library is deprecated and will be removed on 2020-05-01.  Use @drake//common:identifier instead.",  # noqa
-    tags = [
-        # Avoid 'build //...' yelling at us.
-        "manual",
-    ],
-    deps = [
-        "//common:identifier",
-    ],
-)
-
-drake_cc_library(
     name = "shape_specification",
     srcs = ["shape_specification.cc"],
     hdrs = ["shape_specification.h"],
@@ -290,6 +273,15 @@ drake_cc_library(
     deps = [
         "//common",
         "//math:geometric_transform",
+    ],
+)
+
+drake_cc_library(
+    name = "rgba",
+    srcs = ["rgba.cc"],
+    hdrs = ["rgba.h"],
+    deps = [
+        "//common",
     ],
 )
 
@@ -447,6 +439,14 @@ drake_cc_googletest(
     name = "utilities_test",
     deps = [
         "utilities",
+        "//common/test_utilities",
+    ],
+)
+
+drake_cc_googletest(
+    name = "rgba_test",
+    deps = [
+        ":rgba",
         "//common/test_utilities",
     ],
 )

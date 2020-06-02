@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Install development prerequisites for source distributions of Drake on
-# Ubuntu 18.04 (Bionic).
+# Ubuntu 18.04 (Bionic) or 20.04 (Focal).
 #
 # The development and runtime prerequisites for binary distributions should be
 # installed before running this script.
@@ -23,13 +23,31 @@ EOF
 
 codename=$(lsb_release -sc)
 
-wget -O - https://drake-apt.csail.mit.edu/drake.pub.gpg | apt-key add
-echo "deb [arch=amd64] https://drake-apt.csail.mit.edu/${codename} ${codename} main" > /etc/apt/sources.list.d/drake.list
+# On Bionic, developers must opt-in to kcov support; it comes in with the
+# non-standard package name kcov-35 via a Drake-specific PPA.
+if [[ "${codename}" == 'bionic' ]] &&
+    [[ "$#" -eq 1 ]] &&
+    [[ "$1" == "--with-kcov" ]]; then
+  wget -O - https://drake-apt.csail.mit.edu/drake.pub.gpg | apt-key add
+  echo "deb [arch=amd64] https://drake-apt.csail.mit.edu/${codename} ${codename} main" > /etc/apt/sources.list.d/drake.list
+  apt-get update
+  apt-get install --no-install-recommends kcov-35
+fi
 
 apt-get update
 apt-get install --no-install-recommends $(cat "${BASH_SOURCE%/*}/packages-${codename}.txt" | tr '\n' ' ')
 
 locale-gen en_US.UTF-8
+
+if [[ "${codename}" == 'focal' ]]; then
+  # We need a working /usr/bin/python (of any version).  On Bionic it's there
+  # by default, but on Focal we have to ask for it.
+  if [[ ! -e /usr/bin/python ]]; then
+    apt-get install --no-install-recommends python-is-python3
+  else
+    echo "/usr/bin/python is already installed"
+  fi
+fi
 
 dpkg_install_from_wget() {
   package="$1"

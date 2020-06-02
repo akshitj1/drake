@@ -13,6 +13,7 @@
 #include "drake/systems/analysis/runge_kutta3_integrator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/analysis/simulator_flags.h"
+#include "drake/systems/analysis/simulator_print_stats.h"
 
 using std::unique_ptr;
 
@@ -27,8 +28,35 @@ PYBIND11_MODULE(analysis, m) {
 
   py::module::import("pydrake.systems.framework");
 
-  py::class_<SimulatorStatus>(
-      m, "SimulatorStatus", pydrake_doc.drake.systems.SimulatorStatus.doc);
+  {
+    constexpr auto& doc = pydrake_doc.drake.systems;
+    using Class = SimulatorStatus;
+    constexpr auto& cls_doc = doc.SimulatorStatus;
+    py::class_<Class> cls(m, "SimulatorStatus", cls_doc.doc);
+
+    using Enum = Class::ReturnReason;
+    constexpr auto& enum_doc = cls_doc.ReturnReason;
+    py::enum_<Class::ReturnReason>(cls, "ReturnReason", enum_doc.doc)
+        .value("kReachedBoundaryTime", Enum::kReachedBoundaryTime,
+            enum_doc.kReachedBoundaryTime.doc)
+        .value("kReachedTerminationCondition",
+            Enum::kReachedTerminationCondition,
+            enum_doc.kReachedTerminationCondition.doc)
+        .value("kEventHandlerFailed", Enum::kEventHandlerFailed,
+            enum_doc.kEventHandlerFailed.doc);
+
+    cls  // BR
+         // TODO(eric.cousineau): Bind setter methods.
+        .def("FormatMessage", &Class::FormatMessage, cls_doc.FormatMessage.doc)
+        .def("succeeded", &Class::succeeded, cls_doc.succeeded.doc)
+        .def("boundary_time", &Class::boundary_time, cls_doc.boundary_time.doc)
+        .def("return_time", &Class::return_time, cls_doc.return_time.doc)
+        .def("reason", &Class::reason, cls_doc.reason.doc)
+        .def("system", &Class::system, py_reference, cls_doc.system.doc)
+        .def("message", &Class::message, cls_doc.message.doc)
+        .def("IsIdenticalStatus", &Class::IsIdenticalStatus, py::arg("other"),
+            cls_doc.IsIdenticalStatus.doc);
+  }
 
   auto bind_scalar_types = [m](auto dummy) {
     constexpr auto& doc = pydrake_doc.drake.systems;
@@ -108,6 +136,12 @@ PYBIND11_MODULE(analysis, m) {
             doc.Simulator.AdvanceTo.doc)
         .def("AdvancePendingEvents", &Simulator<T>::AdvancePendingEvents,
             doc.Simulator.AdvancePendingEvents.doc)
+        .def("set_monitor", WrapCallbacks(&Simulator<T>::set_monitor),
+            py::arg("monitor"), doc.Simulator.set_monitor.doc)
+        .def("clear_monitor", &Simulator<T>::clear_monitor,
+            doc.Simulator.clear_monitor.doc)
+        .def("get_monitor", &Simulator<T>::get_monitor,
+            doc.Simulator.get_monitor.doc)
         .def("get_context", &Simulator<T>::get_context, py_reference_internal,
             doc.Simulator.get_context.doc)
         .def("get_integrator", &Simulator<T>::get_integrator,
@@ -134,7 +168,9 @@ PYBIND11_MODULE(analysis, m) {
             doc.Simulator.get_target_realtime_rate.doc)
         .def("get_actual_realtime_rate",
             &Simulator<T>::get_actual_realtime_rate,
-            doc.Simulator.get_actual_realtime_rate.doc);
+            doc.Simulator.get_actual_realtime_rate.doc)
+        .def("ResetStatistics", &Simulator<T>::ResetStatistics,
+            doc.Simulator.ResetStatistics.doc);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     const char* const reset_integrator_doc =
@@ -157,7 +193,8 @@ PYBIND11_MODULE(analysis, m) {
 
   // Simulator Flags
   m  // BR
-      .def("ResetIntegratorFromFlags",
+      .def(
+          "ResetIntegratorFromFlags",
           [](Simulator<double>* simulator, const std::string& scheme,
               const double& max_step_size) {
             IntegratorBase<double>& result =
@@ -171,6 +208,10 @@ PYBIND11_MODULE(analysis, m) {
           pydrake_doc.drake.systems.ResetIntegratorFromFlags.doc)
       .def("GetIntegrationSchemes", &GetIntegrationSchemes,
           pydrake_doc.drake.systems.GetIntegrationSchemes.doc);
+  // Print Simulator Statistics
+  m  // BR
+      .def("PrintSimulatorStatistics", &PrintSimulatorStatistics,
+          pydrake_doc.drake.systems.PrintSimulatorStatistics.doc);
 
   // Monte Carlo Testing
   {

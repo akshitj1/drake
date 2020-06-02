@@ -26,6 +26,7 @@
 #include "drake/multibody/tree/revolute_joint.h"
 #include "drake/multibody/tree/revolute_spring.h"
 #include "drake/multibody/tree/rigid_body.h"
+#include "drake/multibody/tree/universal_joint.h"
 #include "drake/multibody/tree/weld_joint.h"
 
 namespace drake {
@@ -241,7 +242,20 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("acceleration_lower_limits", &Class::acceleration_lower_limits,
             cls_doc.acceleration_lower_limits.doc)
         .def("acceleration_upper_limits", &Class::acceleration_upper_limits,
-            cls_doc.acceleration_upper_limits.doc);
+            cls_doc.acceleration_upper_limits.doc)
+        .def("default_positions", &Class::default_positions,
+            cls_doc.default_positions.doc)
+        .def("set_position_limits", &Class::set_position_limits,
+            py::arg("lower_limits"), py::arg("upper_limits"),
+            cls_doc.set_position_limits.doc)
+        .def("set_velocity_limits", &Class::set_velocity_limits,
+            py::arg("lower_limits"), py::arg("upper_limits"),
+            cls_doc.set_velocity_limits.doc)
+        .def("set_acceleration_limits", &Class::set_acceleration_limits,
+            py::arg("lower_limits"), py::arg("upper_limits"),
+            cls_doc.set_acceleration_limits.doc)
+        .def("set_default_positions", &Class::set_default_positions,
+            py::arg("default_positions"), cls_doc.set_default_positions.doc);
   }
 
   // BallRpyJoint
@@ -285,6 +299,9 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("pos_upper_limit") =
                 std::numeric_limits<double>::infinity(),
             py::arg("damping") = 0, cls_doc.ctor.doc)
+        .def("translation_axis", &Class::translation_axis,
+            cls_doc.translation_axis.doc)
+        .def("damping", &Class::damping, cls_doc.damping.doc)
         .def("get_translation", &Class::get_translation, py::arg("context"),
             cls_doc.get_translation.doc)
         .def("set_translation", &Class::set_translation, py::arg("context"),
@@ -311,6 +328,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("name"), py::arg("frame_on_parent"),
             py::arg("frame_on_child"), py::arg("axis"), py::arg("damping") = 0,
             cls_doc.ctor.doc_5args)
+        .def("revolute_axis", &Class::revolute_axis, cls_doc.revolute_axis.doc)
+        .def("damping", &Class::damping, cls_doc.damping.doc)
         .def("get_angle", &Class::get_angle, py::arg("context"),
             cls_doc.get_angle.doc)
         .def("set_angle", &Class::set_angle, py::arg("context"),
@@ -318,6 +337,31 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("set_random_angle_distribution",
             &Class::set_random_angle_distribution, py::arg("angle"),
             cls_doc.set_random_angle_distribution.doc);
+  }
+
+  // UniversalJoint
+  {
+    using Class = UniversalJoint<T>;
+    constexpr auto& cls_doc = doc.UniversalJoint;
+    auto cls = DefineTemplateClassWithDefault<Class, Joint<T>>(
+        m, "UniversalJoint", param, cls_doc.doc);
+    cls  // BR
+        .def(
+            py::init<const string&, const Frame<T>&, const Frame<T>&, double>(),
+            py::arg("name"), py::arg("frame_on_parent"),
+            py::arg("frame_on_child"), py::arg("damping") = 0, cls_doc.ctor.doc)
+        .def("damping", &Class::damping, cls_doc.damping.doc)
+        .def("get_angles", &Class::get_angles, py::arg("context"),
+            cls_doc.get_angles.doc)
+        .def("set_angles", &Class::set_angles, py::arg("context"),
+            py::arg("angles"), cls_doc.set_angles.doc)
+        .def("get_angular_rates", &Class::get_angular_rates, py::arg("context"),
+            cls_doc.get_angular_rates.doc)
+        .def("set_angular_rates", &Class::set_angular_rates, py::arg("context"),
+            py::arg("theta_dot"), cls_doc.set_angular_rates.doc)
+        .def("set_random_angles_distribution",
+            &Class::set_random_angles_distribution, py::arg("angles"),
+            cls_doc.set_random_angles_distribution.doc);
   }
 
   // WeldJoint
@@ -340,7 +384,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
                   child_frame_C, RigidTransform<double>(X_PC));
             }),
             py::arg("name"), py::arg("parent_frame_P"),
-            py::arg("child_frame_C"), py::arg("X_PC"), doc_iso3_deprecation);
+            py::arg("child_frame_C"), py::arg("X_PC"), doc_iso3_deprecation)
+        .def("X_PC", &Class::X_PC, cls_doc.X_PC.doc);
   }
 
   // Actuators.
@@ -352,7 +397,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
     BindMultibodyElementMixin(&cls);
     cls  // BR
         .def("name", &Class::name, cls_doc.name.doc)
-        .def("joint", &Class::joint, py_reference_internal, cls_doc.joint.doc);
+        .def("joint", &Class::joint, py_reference_internal, cls_doc.joint.doc)
+        .def("effort_limit", &Class::effort_limit, cls_doc.effort_limit.doc);
   }
 
   // Force Elements.
@@ -459,9 +505,18 @@ void DoScalarDependentDefinitions(py::module m, T) {
 
   // Inertias
   {
+    using Class = RotationalInertia<T>;
+    constexpr auto& cls_doc = doc.RotationalInertia;
+    auto cls = DefineTemplateClassWithDefault<Class>(
+        m, "RotationalInertia", param, cls_doc.doc);
+    cls  // BR
+        .def("CopyToFullMatrix3", &Class::CopyToFullMatrix3,
+            cls_doc.CopyToFullMatrix3.doc);
+  }
+  {
     using Class = UnitInertia<T>;
     constexpr auto& cls_doc = doc.UnitInertia;
-    auto cls = DefineTemplateClassWithDefault<Class>(
+    auto cls = DefineTemplateClassWithDefault<Class, RotationalInertia<T>>(
         m, "UnitInertia", param, cls_doc.doc);
     cls  // BR
         .def(py::init(), cls_doc.ctor.doc_0args)
@@ -480,7 +535,17 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def(py::init<const T&, const Eigen::Ref<const Vector3<T>>&,
                  const UnitInertia<T>&>(),
             py::arg("mass"), py::arg("p_PScm_E"), py::arg("G_SP_E"),
-            cls_doc.ctor.doc_3args);
+            cls_doc.ctor.doc_3args)
+        .def("get_mass", &Class::get_mass, cls_doc.get_mass.doc)
+        .def("get_com", &Class::get_com, cls_doc.get_com.doc)
+        .def("get_unit_inertia", &Class::get_unit_inertia,
+            cls_doc.get_unit_inertia.doc)
+        .def("CalcRotationalInertia", &Class::CalcRotationalInertia,
+            cls_doc.CalcRotationalInertia.doc)
+        .def("IsPhysicallyValid", &Class::IsPhysicallyValid,
+            cls_doc.IsPhysicallyValid.doc)
+        .def("CopyToFullMatrix6", &Class::CopyToFullMatrix6,
+            cls_doc.CopyToFullMatrix6.doc);
   }
 }
 }  // namespace

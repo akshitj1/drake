@@ -180,8 +180,9 @@ class IntegratorBase {
    The precise meaning of *accuracy* is a complicated discussion, but it
    translates roughly to the number of significant digits you want in the
    results. By convention it is supplied as `10^-digits`, meaning that an
-   accuracy of 1e-3 provides about three significant digits. For continued
-   discussion of accuracy, see [Sherman 2011].
+   accuracy of 1e-3 provides about three significant digits. For more
+   discussion of accuracy, see @ref accuracy_and_tolerance and ref.
+   [[1]](https://dx.doi.org/10.1016/j.piutam.2011.04.023).
 
    Integrators vary in the range of accuracy (loosest to tightest) that they
    can support, and each integrator will choose a default accuracy to be used
@@ -197,9 +198,8 @@ class IntegratorBase {
    certainly implies greater error in the ODE solution and might impact the
    stability of the solution negatively as well.
 
-   - [Sherman, 2011]  M. Sherman, et al. Procedia IUTAM 2:241-261 (2011),
-                      Section 3.3.
-                      http://dx.doi.org/10.1016/j.piutam.2011.04.023
+   - [1] M. Sherman, A. Seth, S. Delp. Procedia IUTAM 2:241-261 (2011),
+     Section 3.3. https://dx.doi.org/10.1016/j.piutam.2011.04.023
 
    @{
    */
@@ -1350,50 +1350,6 @@ class IntegratorBase {
    @sa get_target_accuracy()
    */
   void set_accuracy_in_use(double accuracy) { accuracy_in_use_ = accuracy; }
-
-  /**
-   Generic code for validating (and resetting, if need be) the integrator
-   working accuracy for error controlled integrators. This method is
-   intended to be called from an integrator's DoInitialize() method.
-   @param default_accuracy a reasonable default accuracy setting for this
-          integrator.
-   @param loosest_accuracy the loosest accuracy that this integrator should
-          support.
-   @param max_step_fraction a fraction of the maximum step size to use when
-          setting the integrator accuracy and the user has not specified
-          accuracy directly.
-   @throws std::logic_error if neither the initial step size target nor
-           the maximum step size has been set.
-   */
-  void InitializeAccuracy(double default_accuracy, double loosest_accuracy,
-                          double max_step_fraction) {
-    using std::isnan;
-
-    // Set an artificial step size target, if not set already.
-    if (isnan(this->get_initial_step_size_target())) {
-      // Verify that maximum step size has been set.
-      if (isnan(this->get_maximum_step_size()))
-        throw std::logic_error("Neither initial step size target nor maximum "
-                                   "step size has been set!");
-
-      this->request_initial_step_size_target(
-          this->get_maximum_step_size() * max_step_fraction);
-    }
-
-    // Sets the working accuracy to a good value.
-    double working_accuracy = this->get_target_accuracy();
-
-    // If the user asks for accuracy that is looser than the loosest this
-    // integrator can provide, use the integrator's loosest accuracy setting
-    // instead.
-    if (isnan(working_accuracy)) {
-      working_accuracy = default_accuracy;
-    } else {
-      if (working_accuracy > loosest_accuracy)
-        working_accuracy = loosest_accuracy;
-    }
-    this->set_accuracy_in_use(working_accuracy);
-  }
 
   /**
    Default code for advancing the continuous state of the system by a single

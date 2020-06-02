@@ -11,14 +11,17 @@
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/trajectories/test/random_piecewise_polynomial.h"
+#include "drake/math/autodiff_gradient.h"
 
+using drake::math::autoDiffToGradientMatrix;
+using drake::math::DiscardGradient;
 using Eigen::Matrix;
 using std::default_random_engine;
+using std::normal_distribution;
+using std::runtime_error;
+using std::uniform_int_distribution;
 using std::uniform_real_distribution;
 using std::vector;
-using std::runtime_error;
-using std::normal_distribution;
-using std::uniform_int_distribution;
 
 namespace drake {
 namespace trajectories {
@@ -390,7 +393,7 @@ GTEST_TEST(testPiecewisePolynomial, ReverseAndScaleTimeTest) {
   TestScaling(spline, 4.3);
 }
 
-GTEST_TEST(testPiecewisePolynomial, ReshapeTest) {
+GTEST_TEST(testPiecewisePolynomial, ReshapeAndBlockTest) {
   std::vector<double> breaks = {0, .5, 1.};
   std::vector<Eigen::MatrixXd> samples(3);
   samples[0].resize(2, 3);
@@ -413,6 +416,17 @@ GTEST_TEST(testPiecewisePolynomial, ReshapeTest) {
   samples[1].resize(3, 2);
   EXPECT_TRUE(CompareMatrices(zoh.value(0.25), samples[0]));
   EXPECT_TRUE(CompareMatrices(zoh.value(0.75), samples[1]));
+
+  PiecewisePolynomial<double> block = zoh.Block(1, 1, 2, 1);
+  EXPECT_EQ(block.rows(), 2);
+  EXPECT_EQ(block.cols(), 1);
+  EXPECT_EQ(block.start_time(), zoh.start_time());
+  EXPECT_EQ(block.end_time(), zoh.end_time());
+  EXPECT_EQ(block.get_number_of_segments(), zoh.get_number_of_segments());
+
+  EXPECT_EQ(zoh.Block(0, 0, 1, 1).value(0.25), samples[0].block(0, 0, 1, 1));
+  EXPECT_EQ(zoh.Block(2, 1, 1, 1).value(0.75), samples[1].block(2, 1, 1, 1));
+  EXPECT_EQ(zoh.Block(1, 1, 2, 1).value(0.75), samples[1].block(1, 1, 2, 1));
 }
 
 GTEST_TEST(testPiecewisePolynomial, IsApproxTest) {
@@ -479,9 +493,8 @@ GTEST_TEST(PiecewiseTrajectoryTest, SymbolicValues) {
       PiecewisePolynomial<Expression>::FirstOrderHold(symbolic_breaks, samples),
       std::runtime_error);
 
-  // Symbolic samples (and therefore coefficient) returns the symbolic form only
-  // inside the current segment.  This admittedly bad behavior is documented as
-  // a warning in the PiecewisePolynomial::value() documentation.
+  // For symbolic samples (and therefore coefficients), value() returns the
+  // symbolic form at the specified time.
   const Variable x0("x0");
   const Variable x1("x1");
   const Variable x2("x2");
@@ -490,6 +503,37 @@ GTEST_TEST(PiecewiseTrajectoryTest, SymbolicValues) {
       PiecewisePolynomial<Expression>::FirstOrderHold(breaks, symbolic_samples);
   EXPECT_TRUE(foh_w_symbolic_coeffs.value(0.25)(0).Expand().EqualTo(0.5 * x0 +
                                                                     0.5 * x1));
+}
+
+// Verifies that the derivatives obtained by evaluating a
+// `PiecewisePolynomial<AutoDiffXd>` and extracting the gradient of the result
+// match those obtained by taking the derivative of the whole trajectory and
+// evaluating it at the same point.
+GTEST_TEST(PiecewiseTrajectoryTest, AutoDiffDerivativesTest) {
+  VectorX<AutoDiffXd> breaks(3);
+  breaks << 0, .5, 1.;
+  MatrixX<AutoDiffXd> samples(2, 3);
+  samples << 1, 1, 2, 2, 0, 3;
+
+  const PiecewisePolynomial<AutoDiffXd> trajectory =
+      PiecewisePolynomial<AutoDiffXd>::CubicWithContinuousSecondDerivatives(
+          breaks, samples);
+  std::unique_ptr<Trajectory<AutoDiffXd>> derivative_trajectory =
+      trajectory.MakeDerivative();
+  const int num_times = 100;
+  VectorX<double> t = VectorX<double>::LinSpaced(
+      num_times, ExtractDoubleOrThrow(trajectory.start_time()),
+      ExtractDoubleOrThrow(trajectory.end_time()));
+  const double tolerance = 20 * std::numeric_limits<double>::epsilon();
+  for (int k = 0; k < num_times; ++k) {
+    AutoDiffXd t_k = math::initializeAutoDiff(Vector1d{t(k)})[0];
+    MatrixX<double> derivative_value =
+        autoDiffToGradientMatrix(trajectory.value(t_k));
+    MatrixX<double> expected_derivative_value =
+        DiscardGradient(derivative_trajectory->value(t(k)));
+    EXPECT_TRUE(CompareMatrices(derivative_value, expected_derivative_value,
+                                tolerance));
+  }
 }
 
 }  // namespace
