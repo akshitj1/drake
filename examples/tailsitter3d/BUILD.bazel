@@ -1,0 +1,51 @@
+# -*- python -*-
+
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+    "drake_cc_library",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+drake_cc_library(
+    name = "flat_wing",
+    srcs = ["flat_wing.cc"],
+    hdrs = ["flat_wing.h"],
+    deps = [
+        "//multibody/plant:multibody_plant_core",
+    ],
+)
+
+drake_cc_library(
+    name = "external_spatial_force_multiplexer",
+    hdrs = ["external_spatial_force_multiplexer.h"],
+    deps = ["//multibody/plant:multibody_plant_core"],
+)
+
+drake_cc_library(
+    name = "make_tailsitter_plant",
+    hdrs = [
+        "make_tailsitter_plant.h",
+    ],
+    deps = [
+        ":external_spatial_force_multiplexer",
+        ":flat_wing",
+        "//multibody/plant:multibody_plant_core",
+        "//multibody/plant:propeller",
+    ],
+)
+
+drake_cc_binary(
+    name = "hover_tailsitter",
+    srcs = ["hover_tailsitter.cc"],
+    deps = [
+        ":flat_wing",
+        ":make_tailsitter_plant",
+        "//geometry:geometry_visualization",
+        "//systems/analysis:simulator",
+        "//systems/framework:diagram",
+        "//systems/primitives:constant_vector_source",
+        "@gflags",
+    ],
+)

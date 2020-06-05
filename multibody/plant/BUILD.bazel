@@ -50,7 +50,7 @@ drake_cc_library(
     hdrs = [
         "multibody_plant.h",
     ],
-    visibility = ["//visibility:private"],
+    visibility = ["//visibility:public"],
     deps = [
         ":contact_jacobians",
         ":contact_results",
