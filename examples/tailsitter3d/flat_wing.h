@@ -116,27 +116,30 @@ class FlatWing final : public systems::LeafSystem<T> {
       //  - the origin of my frame P is Po == Bq, and
       //  - the origin of my frame B is Bo.
       const math::RigidTransform<T>& X_WB = poses[wing.body_index];
-      const Vector3<double>& p_BoAo_B = wing.X_BA.translation();
-      // todo: do we need velocity of aerodynamic center of COM. below is of
-      // origin, which is none of these
-      const Vector3<T>& p_dot_Ao_W = vels[wing.body_index].translational();
-      const math::RigidTransform<T> X_WA = X_WB * wing.X_BA.cast<T>();
-      const math::RotationMatrix<T>& R_WA = X_WA.rotation();
+      const Vector3<T>& p_BoAo_B = wing.X_BA.translation().cast<T>();
+      const auto& vel_Bo_W = vels[wing.body_index];
+      const auto& R_WB = X_WB.rotation();
+      const auto& p_BoAo_W = R_WB * p_BoAo_B;
+      const auto& vel_Ao_W = vel_Bo_W.Shift(p_BoAo_W);
+      const auto& p_dot_Ao_W = vel_Ao_W.translational();
+      const auto& X_WA = X_WB * wing.X_BA.cast<T>();
+      const auto& R_WA = X_WA.rotation();
 
       // get angle of attack b/w wing plane(x-y) and its origin velocity
       // vector
-      T sin_attack_angle = p_dot_Ao_W.dot(R_WA * Vector3<T>::UnitZ());
+      T sin_attack_angle =
+          -p_dot_Ao_W.normalized().dot(R_WA * Vector3<T>::UnitZ());
       T aero_force_magnitude = atmospheric_density * p_dot_Ao_W.squaredNorm() *
                                wing.surface_area * sin_attack_angle;
 
-      const SpatialForce<T> F_BAo_A(Vector3<T>(),
+      const SpatialForce<T> F_BAo_A(Vector3<T>::Zero(),
                                     aero_force_magnitude * Vector3<T>::UnitZ());
 
-      const SpatialForce<T> F_BPo_W = R_WA * F_BAo_A;
+      const SpatialForce<T> F_BAo_W = R_WA * F_BAo_A;
 
       spatial_forces->at(i).body_index = wing.body_index;
       spatial_forces->at(i).p_BoBq_B = p_BoAo_B;
-      spatial_forces->at(i).F_Bq_W = F_BPo_W;
+      spatial_forces->at(i).F_Bq_W = F_BAo_W;
     }
   }
 };

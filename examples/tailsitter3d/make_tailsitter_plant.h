@@ -28,6 +28,7 @@ using multibody::UnitInertia;
 
 class TailsitterParameters {
  private:
+  const double gravity_, atmospheric_density_;
   const double wing_lx_, wing_ly_, wing_lz_;
   const double elevon_lx_, elevon_ly_, elevon_lz_;
   const double wing_aerodynamic_center_;
@@ -35,7 +36,6 @@ class TailsitterParameters {
 
   const double propeller_diameter_, propeller_com_distance_,
       propeller_thrust_ratio_, propeller_moment_ratio_;
-  const double gravity_, atmospheric_density_;
 
  public:
   // DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(TailsitterParameters)
@@ -57,7 +57,7 @@ class TailsitterParameters {
         propeller_mass_(tailsitter_mass_ / 4),
         wing_mass_(tailsitter_mass_ / 2 * (wing_lz_ / (elevon_lz_ + wing_lz_))),
         elevon_mass_((tailsitter_mass_ / 2 - wing_mass_) / 2),
-        wing_aerodynamic_center_(wing_lz_ / 4),
+        wing_aerodynamic_center_(3 * wing_lz_ / 4),
         propeller_diameter_(0.135),
         propeller_com_distance_(wing_lx_ / 2 - propeller_diameter_ / 2),
         propeller_thrust_ratio_(1.6 / 2 * tailsitter_mass_ * gravity_),
@@ -71,6 +71,7 @@ class TailsitterParameters {
   double wing_mass() const { return wing_mass_; }
   double tailsitter_mass() const { return tailsitter_mass_; }
   double propeller_com_distance() const { return propeller_com_distance_; }
+  double propeller_diameter() const { return propeller_diameter_; }
   double propeller_thrust_ratio() const { return propeller_thrust_ratio_; }
   double propeller_moment_ratio() const { return propeller_moment_ratio_; }
   double wing_aerodynamic_center() const { return wing_aerodynamic_center_; }
@@ -117,12 +118,7 @@ class TailsitterPlantBuilder {
                                Vector3<double>::UnitZ());
     plant->RegisterVisualGeometry(
         wing, X_WG, Box(params.wing_lx(), params.wing_ly(), params.wing_lz()),
-        "visual");
-
-    // Gravity acting in the -z direction.
-    plant->mutable_gravity_field().set_gravity_vector(-params.gravity() *
-                                                      Vector3<double>::UnitZ());
-    plant->Finalize();
+        "wing_visual");
 
     // before we can add any plants(propeller, lifting surfaces), lets add
     // forcesMux. todo: fix after resolution of:
@@ -135,16 +131,11 @@ class TailsitterPlantBuilder {
     math::RigidTransform<double> X_BA;
     X_BA.set_translation(-params.wing_aerodynamic_center() *
                          Vector3<double>::UnitZ());
+    // lift is along z axis for flatwing model
+    X_BA.set_rotation(math::RotationMatrix<double>::MakeXRotation(M_PI_2));
     auto wing_info = FlatWingInfo(wing.index(), X_BA, params.wing_area());
     auto wing_dynamics = builder.AddSystem<FlatWing<double>>(
         std::vector<FlatWingInfo>({wing_info}), params.atmospheric_density());
-
-    builder.Connect(wing_dynamics->get_spatial_forces_output_port(),
-                    forces_mux->get_input_port(0));
-    builder.Connect(plant->get_body_poses_output_port(),
-                    wing_dynamics->get_body_poses_input_port());
-    builder.Connect(plant->get_body_spatial_velocities_output_port(),
-                    wing_dynamics->get_body_velocities_input_port());
 
     // ============== build elevon =================
 
@@ -159,9 +150,29 @@ class TailsitterPlantBuilder {
       props_info.push_back(
           PropellerInfo(wing.index(), X_BP, params.propeller_thrust_ratio(),
                         pow(-1, prop_i) * params.propeller_moment_ratio()));
+
+      // prop visual
+      plant->RegisterVisualGeometry(
+          wing, X_BP,
+          Cylinder(params.propeller_diameter() / 2, params.wing_ly()),
+          fmt::format("prop_{}_visual", prop_i + 1));
     }
     auto props = builder.AddSystem<Propeller<double>>(props_info);
 
+    // Gravity acting in the -z direction.
+    plant->mutable_gravity_field().set_gravity_vector(-params.gravity() *
+                                                      Vector3<double>::UnitZ());
+    plant->Finalize();
+
+    // connect wing dynamics port
+    builder.Connect(wing_dynamics->get_spatial_forces_output_port(),
+                    forces_mux->get_input_port(0));
+    builder.Connect(plant->get_body_poses_output_port(),
+                    wing_dynamics->get_body_poses_input_port());
+    builder.Connect(plant->get_body_spatial_velocities_output_port(),
+                    wing_dynamics->get_body_velocities_input_port());
+
+    // connect propeller dynamics port
     builder.Connect(props->get_spatial_forces_output_port(),
                     forces_mux->get_input_port(1));
     builder.Connect(plant->get_body_poses_output_port(),
