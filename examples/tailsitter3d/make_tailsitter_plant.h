@@ -8,6 +8,7 @@
 #include "drake/geometry/scene_graph.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/plant/propeller.h"
+#include "drake/multibody/tree/revolute_joint.h"
 
 namespace drake {
 namespace examples {
@@ -16,12 +17,15 @@ using drake::math::RigidTransformd;
 using geometry::Box;
 using geometry::Cylinder;
 using geometry::SceneGraph;
+using math::RigidTransform;
+using math::RotationMatrix;
 using multibody::ExternalSpatialForceMultiplexer;
 using multibody::FlatWing;
 using multibody::FlatWingInfo;
 using multibody::MultibodyPlant;
 using multibody::Propeller;
 using multibody::PropellerInfo;
+using multibody::RevoluteJoint;
 using multibody::RigidBody;
 using multibody::SpatialInertia;
 using multibody::UnitInertia;
@@ -68,14 +72,19 @@ class TailsitterParameters {
   double wing_lx() const { return wing_lx_; }
   double wing_ly() const { return wing_ly_; }
   double wing_lz() const { return wing_lz_; }
+  double elevon_lx() const { return elevon_lx_; }
+  double elevon_ly() const { return elevon_ly_; }
+  double elevon_lz() const { return elevon_lz_; }
   double wing_mass() const { return wing_mass_; }
-  double tailsitter_mass() const { return tailsitter_mass_; }
+  double elevon_mass() const { return elevon_mass_; }
+  double tailsitter_mass() const { return 2 * elevon_mass_ + wing_mass_; }
   double propeller_com_distance() const { return propeller_com_distance_; }
   double propeller_diameter() const { return propeller_diameter_; }
   double propeller_thrust_ratio() const { return propeller_thrust_ratio_; }
   double propeller_moment_ratio() const { return propeller_moment_ratio_; }
   double wing_aerodynamic_center() const { return wing_aerodynamic_center_; }
   double wing_area() const { return wing_lx_ * wing_lz_; }
+  double elevon_area() const { return elevon_lx_ * elevon_lz_; }
   double atmospheric_density() const { return atmospheric_density_; }
   double gravity() const { return gravity_; }
 };
@@ -98,6 +107,10 @@ class TailsitterPlantBuilder {
      */
     auto plant = builder.AddSystem<MultibodyPlant<double>>(0.0);
 
+    plant->RegisterAsSourceForSceneGraph(scene_graph);
+
+    std::vector<FlatWingInfo> lift_surfaces_info;
+
     // ============== build wing =================
     // wing COM in wing frame
     const Vector3<double> p_WWcm(-params.wing_lz() / 2 *
@@ -111,8 +124,6 @@ class TailsitterPlantBuilder {
         i_Bcm);
     const RigidBody<double>& wing = plant->AddRigidBody("wing", I_Wo);
 
-    plant->RegisterAsSourceForSceneGraph(scene_graph);
-
     // wing visual
     const RigidTransformd X_WG(-params.wing_lz() / 2 *
                                Vector3<double>::UnitZ());
@@ -120,24 +131,54 @@ class TailsitterPlantBuilder {
         wing, X_WG, Box(params.wing_lx(), params.wing_ly(), params.wing_lz()),
         "wing_visual");
 
-    // before we can add any plants(propeller, lifting surfaces), lets add
-    // forcesMux. todo: fix after resolution of:
-    // https://github.com/RobotLocomotion/drake/issues/13139
-    auto forces_mux =
-        builder.AddSystem<ExternalSpatialForceMultiplexer<double>>(
-            std::vector<int>({1, 2}));
-
     // add wing-dynamics
-    math::RigidTransform<double> X_BA;
+    RigidTransform<double> X_BA;
     X_BA.set_translation(-params.wing_aerodynamic_center() *
                          Vector3<double>::UnitZ());
     // lift is along z axis for flatwing model
     X_BA.set_rotation(math::RotationMatrix<double>::MakeXRotation(M_PI_2));
-    auto wing_info = FlatWingInfo(wing.index(), X_BA, params.wing_area());
-    auto wing_dynamics = builder.AddSystem<FlatWing<double>>(
-        std::vector<FlatWingInfo>({wing_info}), params.atmospheric_density());
+    lift_surfaces_info.push_back(
+        FlatWingInfo(wing.index(), X_BA, params.wing_area()));
 
     // ============== build elevon =================
+    for (int i = 0; i < 2; i++) {
+      const std::string elevon_name =
+          fmt::format("elevon_{}", i == 0 ? "left" : "right");
+      // elevon COM in elevon frame
+      const Vector3<double> p_EoEcm(-params.elevon_lz() / 2 *
+                                    Vector3<double>::UnitZ());
+      // inertia about COM
+      auto i_Ecm = UnitInertia<double>::SolidBox(
+          params.elevon_lx(), params.elevon_ly(), params.elevon_lz());
+      // inertia in wing frame, origin at head
+      auto I_Eo = SpatialInertia<double>::MakeFromCentralInertia(
+          params.elevon_mass(),
+          params.elevon_lz() / 2 * Vector3<double>::UnitZ(), i_Ecm);
+      const RigidBody<double>& elevon = plant->AddRigidBody(elevon_name, I_Eo);
+
+      // elevon visual
+      const RigidTransform<double> X_EG(-params.elevon_lz() / 2 *
+                                        Vector3<double>::UnitZ());
+      plant->RegisterVisualGeometry(
+          elevon, X_EG,
+          Box(params.elevon_lx(), params.elevon_ly(), params.elevon_lz()),
+          elevon_name + "_visual");
+
+      // add joint
+      const RigidTransform<double> X_wing_elevon(Vector3<double>(
+          pow(-1, i % 2) * params.wing_lx() / 4, 0, -params.wing_lz()));
+      const RevoluteJoint<double>& hinge = plant->AddJoint<RevoluteJoint>(
+          elevon_name + "_joint", wing, X_wing_elevon, elevon,
+          std::optional<RigidTransform<double>>{}, Vector3<double>::UnitX());
+
+      // add elevon-dynamics
+      math::RigidTransform<double> X_BA;
+      X_BA.set_translation(-params.elevon_lz() / 2 * Vector3<double>::UnitZ());
+      // lift is along z axis for flatwing model
+      X_BA.set_rotation(RotationMatrix<double>::MakeXRotation(M_PI_2));
+      lift_surfaces_info.push_back(
+          FlatWingInfo(elevon.index(), X_BA, params.elevon_area()));
+    }
 
     // ============== build props =================
     // todo: add mass effects of motors to intertia with
@@ -157,20 +198,32 @@ class TailsitterPlantBuilder {
           Cylinder(params.propeller_diameter() / 2, params.wing_ly()),
           fmt::format("prop_{}_visual", prop_i + 1));
     }
-    auto props = builder.AddSystem<Propeller<double>>(props_info);
-
     // Gravity acting in the -z direction.
     plant->mutable_gravity_field().set_gravity_vector(-params.gravity() *
                                                       Vector3<double>::UnitZ());
     plant->Finalize();
 
+    // before we can add any plants(propeller, lifting surfaces), lets add
+    // forcesMux. todo: fix after resolution of:
+    // https://github.com/RobotLocomotion/drake/issues/13139
+    std::vector<int> port_sizes;
+    port_sizes.push_back(lift_surfaces_info.size());
+    port_sizes.push_back(props_info.size());
+    auto forces_mux =
+        builder.AddSystem<ExternalSpatialForceMultiplexer<double>>(port_sizes);
+
+    auto lift_surfaces = builder.AddSystem<FlatWing<double>>(
+        lift_surfaces_info, params.atmospheric_density());
+
+    auto props = builder.AddSystem<Propeller<double>>(props_info);
+
     // connect wing dynamics port
-    builder.Connect(wing_dynamics->get_spatial_forces_output_port(),
+    builder.Connect(lift_surfaces->get_spatial_forces_output_port(),
                     forces_mux->get_input_port(0));
     builder.Connect(plant->get_body_poses_output_port(),
-                    wing_dynamics->get_body_poses_input_port());
+                    lift_surfaces->get_body_poses_input_port());
     builder.Connect(plant->get_body_spatial_velocities_output_port(),
-                    wing_dynamics->get_body_velocities_input_port());
+                    lift_surfaces->get_body_velocities_input_port());
 
     // connect propeller dynamics port
     builder.Connect(props->get_spatial_forces_output_port(),

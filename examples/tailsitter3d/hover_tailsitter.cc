@@ -38,22 +38,31 @@ void simulate_hover() {
   systems::Context<double>& tailsitter_context =
       diagram->GetMutableSubsystemContext(tailsitter, diagram_context.get());
 
+  const auto& left_hinge =
+      tailsitter.GetJointByName<RevoluteJoint>("elevon_left_joint");
+  const auto& right_hinge =
+      tailsitter.GetJointByName<RevoluteJoint>("elevon_right_joint");
+
+  left_hinge.set_angle(&tailsitter_context, M_PI_4);
+  right_hinge.set_angle(&tailsitter_context, M_PI_4);
+
   const RigidBody<double>& wing = tailsitter.GetRigidBodyByName("wing");
   const Vector3<double> pos_wing_initial(0, 0, 1);
-  const auto rot_initial = math::RotationMatrix<double>::MakeXRotation(-M_PI_4);
+  const auto rot_initial =
+      math::RotationMatrix<double>::MakeXRotation(0);  //-M_PI_4);
   const math::RigidTransform<double> pose_wing_initial(rot_initial,
                                                        pos_wing_initial);
   tailsitter.SetFreeBodyPoseInWorldFrame(&tailsitter_context, wing,
                                          pose_wing_initial);
 
-  tailsitter.SetFreeBodySpatialVelocity(
-      &tailsitter_context, wing,
-      SpatialVelocity<double>(Vector3<double>::Zero(),
-                              5 * Vector3<double>::UnitY()));
+  //   tailsitter.SetFreeBodySpatialVelocity(
+  //       &tailsitter_context, wing,
+  //       SpatialVelocity<double>(Vector3<double>::Zero(),
+  //                               5 * Vector3<double>::UnitY()));
 
   TailsitterParameters params;
   const double nominal_thrust_command =
-      (params.wing_mass() * params.gravity() / 2) /
+      (params.tailsitter_mass() * params.gravity() / 2) /
       params.propeller_thrust_ratio();
   diagram_context->FixInputPort(
       0, nominal_thrust_command * Vector2<double>::Ones());
