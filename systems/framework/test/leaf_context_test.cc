@@ -55,7 +55,8 @@ class LeafContextTest : public ::testing::Test {
     // counter here so this test can add more ticketed things later.
     // (That's not allowed in user code.)
     for (int i = 0; i < kNumInputPorts; ++i) {
-      context_.FixInputPort(i, BasicVector<double>(kInputSize[i]));
+      context_.FixInputPort(
+          i, Value<BasicVector<double>>(kInputSize[i]));
       ++next_ticket_;
     }
 
@@ -354,7 +355,8 @@ TEST_F(LeafContextTest, GetVectorInput) {
   AddInputPorts(2, &context);
 
   // Add input port 0 to the context, but leave input port 1 uninitialized.
-  context.FixInputPort(0, {5.0, 6.0});
+  context.FixInputPort(0, Value<BasicVector<double>>(
+                              Eigen::Vector2d(5.0, 6.0)));
 
   // Test that port 0 is retrievable.
   VectorX<double> expected(2);
@@ -430,6 +432,8 @@ TEST_F(LeafContextTest, SetAndGetCache) {
   EXPECT_EQ(99, entry_value.get_value<int>());
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 TEST_F(LeafContextTest, FixInputPort) {
   const InputPortIndex index{0};
   const int size = kInputSize[index];
@@ -490,6 +494,7 @@ TEST_F(LeafContextTest, FixInputPort) {
         "Bad type drake::Value<std::string>");
   }
 }
+#pragma GCC diagnostic pop  // pop -Wdeprecated-declarations
 
 TEST_F(LeafContextTest, Clone) {
   std::unique_ptr<Context<double>> clone = context_.Clone();
@@ -951,6 +956,23 @@ TEST_F(LeafContextTest, TestStateSettingSugar) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       context_.SetAbstractState(0, std::string("hello")), std::logic_error,
       ".*cast to.*std::string.*failed.*actual type.*int.*");
+}
+
+// Check that hidden internal functionality needed by Simulator::Initialize()
+// and CalcNextUpdateTime() is functional in the Context.
+TEST_F(LeafContextTest, PerturbTime) {
+  // This is a hidden method. Should set time to perturbed_time but current
+  // time to true_time.
+  const double true_time = 2.;
+  const double perturbed_time = true_time - 1e-14;
+  ASSERT_NE(perturbed_time, true_time);  // Watch for fatal roundoff.
+  context_.PerturbTime(perturbed_time, true_time);
+  EXPECT_EQ(context_.get_time(), perturbed_time);
+  EXPECT_EQ(*context_.get_true_time(), true_time);  // This is an std::optional.
+
+  // Setting time the normal way clears the "true time".
+  context_.SetTime(1.);
+  EXPECT_FALSE(context_.get_true_time());
 }
 
 }  // namespace

@@ -171,6 +171,7 @@ TEST_F(RevoluteJointTest, Clone) {
   EXPECT_EQ(joint1_clone.acceleration_upper_limits(),
             joint1_->acceleration_upper_limits());
   EXPECT_EQ(joint1_clone.damping(), joint1_->damping());
+  EXPECT_EQ(joint1_clone.get_default_angle(), joint1_->get_default_angle());
 }
 
 TEST_F(RevoluteJointTest, SetVelocityAndAccelerationLimits) {
@@ -223,7 +224,7 @@ TEST_F(RevoluteJointTest, DefaultAngle) {
   // Constructor should set the default angle to 0.0
   EXPECT_EQ(joint1_->get_default_angle(), default_angle);
 
-  // Setting a new default angle should propogate so that `get_default_angle()`
+  // Setting a new default angle should propagate so that `get_default_angle()`
   // remains correct.
   mutable_joint1_->set_default_angle(new_default_angle);
   EXPECT_EQ(joint1_->get_default_angle(), new_default_angle);

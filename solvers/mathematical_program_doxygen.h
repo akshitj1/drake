@@ -1,3 +1,6 @@
+/** @file
+ Doxygen-only documentation for @ref solvers.  */
+
 /** @addtogroup solvers
  * @{
  * Drake's MathematicalProgram class is used to solve the mathematical
@@ -95,7 +98,7 @@
  *     CSDP</a></td>
  *     <td align="center">&diams;</td>
  *     <td></td>
- *     <td></td>
+ *     <td align="center">&diams;</td>
  *     <td align="center">&diams;</td>
  *     <td align="center">&diams;</td>
  * </tr>

@@ -79,18 +79,21 @@ Drake requires a compiler running in C++17 mode.
 | Operating System                 | Bazel | CMake | C/C++ Compiler      | Java              | Python |
 +==================================+=======+=======+=====================+===================+========+
 +----------------------------------+-------+-------+---------------------+-------------------+--------+
-| Ubuntu 18.04 LTS (Bionic Beaver) | 3.0   | 3.10  | | Clang 6.0         | OpenJDK 11        | 3.6    |
-|                                  |       |       | | GCC 7.5 (default) |                   |        |
-+----------------------------------+       +-------+---------------------+-------------------+--------+
-| macOS Mojave (10.14)             |       | 3.17  | | Apple LLVM 11.0.0 | | AdoptOpenJDK 14 | 3.8    |
-|                                  |       |       | | (Xcode 11.3)      | | (HotSpot JVM)   |        |
-+----------------------------------+       |       +---------------------+                   |        |
-| macOS Catalina (10.15)           |       |       | | Apple LLVM 11.0.3 |                   |        |
-|                                  |       |       | | (Xcode 11.4)      |                   |        |
+| Ubuntu 18.04 LTS (Bionic Beaver) | 3.7   | 3.10  | | GCC 7.5 (default) | OpenJDK 11        | 3.6    |
+|                                  |       |       | | Clang 9           |                   |        |
++----------------------------------+       +-------+---------------------+                   +--------+
+| Ubuntu 20.04 LTS (Focal Fossa)   |       | 3.16  | | GCC 9.3 (default) |                   | 3.8    |
+|                                  |       |       | | Clang 9           |                   |        |
++----------------------------------+       +-------+---------------------+-------------------+        |
+| macOS Catalina (10.15)           |       | 3.18  | | Apple LLVM 12.0.0 | | AdoptOpenJDK 15 |        |
+|                                  |       |       | | (Xcode 12.2)      | | (HotSpot JVM)   |        |
 +----------------------------------+-------+-------+---------------------+-------------------+--------+
 
 CPython is the only Python implementation supported. On Ubuntu, amd64
-(i.e., x86_64) is the only supported architecture.
+(i.e., x86_64) is the only supported architecture. On macOS, x86_64 is the only
+supported architecture and running Drake under Rosetta 2 emulation on arm64 is
+not supported. Plans for any future arm64 support on macOS and/or Ubuntu are
+discussed in `issue #13514 <https://github.com/RobotLocomotion/drake/issues/13514>`_.
 
 .. _configuration-management-non-determinism:
 
@@ -119,8 +122,9 @@ to :ref:`ask for help <getting_help>`.
 Binary Packages
 ---------------
 
-The binary releases of Drake are built with GCC 7.5 on Ubuntu Bionic, and Apple
-LLVM 11.0.0 on macOS Mojave.
+The binary releases of Drake are built with GCC 7.5 on Ubuntu 18.04 (Bionic),
+GCC 9.3 on Ubuntu 20.04 (Focal), and Apple LLVM 12.0.0 on macOS Catalina
+(10.15).
 
 The links for these packages are listed in :ref:`binary-installation`.
 
@@ -211,6 +215,7 @@ make the review faster.
 - @EricCousineau-TRI (Toyota Research Institute)
 - @ggould-tri (Toyota Research Institute)
 - @jwnimmer-tri (Toyota Research Institute)
+- @rpoyner-tri (Toyota Research Institute)
 - @sammy-tri (Toyota Research Institute)
 - @SeanCurtis-TRI (Toyota Research Institute)
 - @sherm1 (Toyota Research Institute)
@@ -329,3 +334,4 @@ Version Control
 
     no_push_to_origin
     model_version_control
+    release_playbook

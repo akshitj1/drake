@@ -160,6 +160,7 @@ TEST_F(BallRpyJointTest, Clone) {
   EXPECT_EQ(joint_clone.acceleration_upper_limits(),
             joint_->acceleration_upper_limits());
   EXPECT_EQ(joint_clone.damping(), joint_->damping());
+  EXPECT_EQ(joint_clone.get_default_angles(), joint_->get_default_angles());
 }
 
 TEST_F(BallRpyJointTest, SetVelocityAndAccelerationLimits) {
@@ -217,7 +218,7 @@ TEST_F(BallRpyJointTest, DefaultAngles) {
   // Constructor should set the default angle to Vector3d::Zero()
   EXPECT_EQ(joint_->get_default_angles(), default_angles);
 
-  // Setting a new default angle should propogate so that `get_default_angle()`
+  // Setting a new default angle should propagate so that `get_default_angle()`
   // remains correct.
   mutable_joint_->set_default_angles(new_default_angles);
   EXPECT_EQ(joint_->get_default_angles(), new_default_angles);

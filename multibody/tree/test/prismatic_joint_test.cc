@@ -168,6 +168,8 @@ TEST_F(PrismaticJointTest, Clone) {
   EXPECT_EQ(joint1_clone.acceleration_upper_limits(),
             joint1_->acceleration_upper_limits());
   EXPECT_EQ(joint1_clone.damping(), joint1_->damping());
+  EXPECT_EQ(joint1_clone.get_default_translation(),
+            joint1_->get_default_translation());
 }
 
 TEST_F(PrismaticJointTest, RandomTranslationTest) {
@@ -198,7 +200,7 @@ TEST_F(PrismaticJointTest, DefaultTranslation) {
   // Constructor should set the default tranlation to 0.0
   EXPECT_EQ(joint1_->get_default_translation(), default_translation);
 
-  // Setting a new default translation should propogate so that
+  // Setting a new default translation should propagate so that
   // `get_default_translation()` remains correct.
   mutable_joint1_->set_default_translation(new_default_translation);
   EXPECT_EQ(joint1_->get_default_translation(), new_default_translation);

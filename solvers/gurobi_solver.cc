@@ -166,6 +166,34 @@ void SetLinearConstraintDualSolutions(
   }
 }
 
+template <typename C>
+void SetSecondOrderConeDualSolution(
+    const std::vector<Binding<C>>& constraints,
+    const Eigen::VectorXd& gurobi_qcp_dual_solutions,
+    MathematicalProgramResult* result, int* soc_count) {
+  for (const auto& binding : constraints) {
+    const Vector1d dual_solution(gurobi_qcp_dual_solutions(*soc_count));
+    (*soc_count)++;
+    result->set_dual_solution(binding, dual_solution);
+  }
+}
+
+void SetAllSecondOrderConeDualSolution(
+    const MathematicalProgram& prog, GRBmodel* model,
+    MathematicalProgramResult* result) {
+  const int num_soc = prog.lorentz_cone_constraints().size() +
+                      prog.rotated_lorentz_cone_constraints().size();
+  Eigen::VectorXd gurobi_qcp_dual_solutions(num_soc);
+  GRBgetdblattrarray(model, GRB_DBL_ATTR_QCPI, 0, num_soc,
+                     gurobi_qcp_dual_solutions.data());
+
+  int soc_count = 0;
+  SetSecondOrderConeDualSolution(prog.lorentz_cone_constraints(),
+                                 gurobi_qcp_dual_solutions, result, &soc_count);
+  SetSecondOrderConeDualSolution(prog.rotated_lorentz_cone_constraints(),
+                                 gurobi_qcp_dual_solutions, result, &soc_count);
+}
+
 // Utility to extract Gurobi solve status information into
 // a struct to communicate to user callbacks.
 GurobiSolver::SolveStatusInfo GetGurobiSolveStatus(void* cbdata, int where) {
@@ -371,6 +399,8 @@ int AddLinearConstraint(const MathematicalProgram& prog, GRBmodel* model,
  * @param second_order_cone_new_variable_indices. The indices of variable z in
  * the Gurobi model.
  * @param model The Gurobi model.
+ * @param[in, out] num_gurobi_linear_constraints The number of linear
+ * constraints stored in the gurobi model.
  */
 template <typename C>
 int AddSecondOrderConeConstraints(
@@ -1075,8 +1105,21 @@ void GurobiSolver::DoSolve(
                                &prog_sol_vector);
       result->set_x_val(prog_sol_vector);
 
+      // If QCPDual is 0 and the program has quadratic constraints (including
+      // both Lorentz cone and rotated Lorentz cone constraints), then the dual
+      // variables are not computed.
+      int qcp_dual;
+      error = GRBgetintparam(model_env, "QCPDual", &qcp_dual);
+      DRAKE_DEMAND(!error);
+
+      int num_q_constrs = 0;
+      error = GRBgetintattr(model, "NumQConstrs", &num_q_constrs);
+      DRAKE_DEMAND(!error);
+
+      const bool compute_dual = !(num_q_constrs > 0 && qcp_dual == 0);
+
       // Set dual solutions.
-      if (!is_mip) {
+      if (!is_mip && compute_dual) {
         // Gurobi only provides dual solution for continuous models.
         // Gurobi stores its dual solution for each variable bounds in "reduced
         // cost".
@@ -1085,14 +1128,16 @@ void GurobiSolver::DoSolve(
                            reduced_cost.data());
         SetBoundingBoxDualSolution(prog, reduced_cost, bb_con_dual_indices,
                                    result);
-      }
 
-      Eigen::VectorXd gurobi_dual_solutions(num_gurobi_linear_constraints);
-      GRBgetdblattrarray(model, GRB_DBL_ATTR_PI, 0,
-                         num_gurobi_linear_constraints,
-                         gurobi_dual_solutions.data());
-      SetLinearConstraintDualSolutions(prog, gurobi_dual_solutions,
-                                       constraint_dual_start_row, result);
+        Eigen::VectorXd gurobi_dual_solutions(num_gurobi_linear_constraints);
+        GRBgetdblattrarray(model, GRB_DBL_ATTR_PI, 0,
+                           num_gurobi_linear_constraints,
+                           gurobi_dual_solutions.data());
+        SetLinearConstraintDualSolutions(prog, gurobi_dual_solutions,
+                                         constraint_dual_start_row, result);
+
+        SetAllSecondOrderConeDualSolution(prog, model, result);
+      }
 
       // Obtain optimal cost.
       double optimal_cost = std::numeric_limits<double>::quiet_NaN();

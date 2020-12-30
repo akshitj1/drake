@@ -155,7 +155,7 @@ GTEST_TEST(IpoptSolverTest, AcceptableResult) {
 
 GTEST_TEST(IpoptSolverTest, QPDualSolution1) {
   IpoptSolver solver;
-  TestQPDualSolution1(solver, 1e-5);
+  TestQPDualSolution1(solver, {} /* solver_options */, 1e-5);
 }
 
 GTEST_TEST(IpoptSolverTest, QPDualSolution2) {
@@ -181,6 +181,11 @@ GTEST_TEST(IpoptSolverTest, EqualityConstrainedQPDualSolution2) {
 GTEST_TEST(IpoptSolverTest, LPDualSolution1) {
   IpoptSolver solver;
   TestLPDualSolution1(solver);
+}
+
+GTEST_TEST(IpoptSolverTest, LPDualSolution2) {
+  IpoptSolver solver;
+  TestLPDualSolution2(solver);
 }
 
 GTEST_TEST(IpoptSolverTest, EckhardtDualSolution) {
