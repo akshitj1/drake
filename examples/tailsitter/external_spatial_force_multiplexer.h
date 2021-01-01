@@ -5,9 +5,9 @@
 namespace drake {
 namespace multibody {
 template <typename T>
-class ExternalSpatialForceMultiplexer : public systems::LeafSystem<T> {
+class ExternalSpatialForceMultiplexer final : public systems::LeafSystem<T> {
  private:
-  const std::vector<int> input_sizes_;
+  const std::vector<unsigned int> input_sizes_;
   int output_size() const {
     return std::accumulate(input_sizes_.begin(), input_sizes_.end(), 0,
                            std::plus<int>{});
@@ -16,7 +16,7 @@ class ExternalSpatialForceMultiplexer : public systems::LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ExternalSpatialForceMultiplexer)
 
-  explicit ExternalSpatialForceMultiplexer(std::vector<int> input_sizes)
+  explicit ExternalSpatialForceMultiplexer(std::vector<unsigned int> input_sizes)
       : input_sizes_(input_sizes) {
     for (unsigned long port = 0; port < input_sizes_.size(); port++) {
       // const int input_size = input_sizes_[port];
