@@ -13,35 +13,6 @@ class ExternalSpatialForceMultiplexer final : public systems::LeafSystem<T> {
                            std::plus<int>{});
   }
 
- public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ExternalSpatialForceMultiplexer)
-
-  explicit ExternalSpatialForceMultiplexer(std::vector<unsigned int> input_sizes)
-      : input_sizes_(input_sizes) {
-    for (unsigned long port = 0; port < input_sizes_.size(); port++) {
-      // const int input_size = input_sizes_[port];
-      this->DeclareAbstractInputPort(
-          fmt::format("external_spatial_forces_{}", port),
-          Value<std::vector<ExternallyAppliedSpatialForce<T>>>());
-    }
-
-    this->DeclareAbstractOutputPort(
-        "all_external_spatial_forces",
-        std::vector<ExternallyAppliedSpatialForce<T>>(output_size()),
-        &ExternalSpatialForceMultiplexer<T>::ConcatenateForceInputs);
-  }
-
-  template <typename U>
-  explicit ExternalSpatialForceMultiplexer(
-      const ExternalSpatialForceMultiplexer<U>& other)
-      : ExternalSpatialForceMultiplexer<T>(std::vector<int>(
-            other.input_sizes_.begin(), other.input_sizes_.end())) {}
-
-  const systems::OutputPort<T>& get_spatial_forces_output_port() const {
-    return this->get_output_port(0);
-  }
-
- private:
   // This is the calculator for the output port.
   void ConcatenateForceInputs(
       const systems::Context<T>& context,
@@ -60,6 +31,40 @@ class ExternalSpatialForceMultiplexer final : public systems::LeafSystem<T> {
         spatial_forces_idx++;
       }
     }
+  }
+
+  // Declare friendship to enable scalar conversion.
+  template <typename U>
+  friend class ExternalSpatialForceMultiplexer;
+
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ExternalSpatialForceMultiplexer)
+
+  explicit ExternalSpatialForceMultiplexer(
+      std::vector<unsigned int> input_sizes)
+      : systems::LeafSystem<T>(systems::SystemTypeTag<ExternalSpatialForceMultiplexer>{}),
+       input_sizes_(input_sizes) {
+    for (unsigned long port = 0; port < input_sizes_.size(); port++) {
+      // const int input_size = input_sizes_[port];
+      this->DeclareAbstractInputPort(
+          fmt::format("external_spatial_forces_{}", port),
+          Value<std::vector<ExternallyAppliedSpatialForce<T>>>());
+    }
+
+    this->DeclareAbstractOutputPort(
+        "all_external_spatial_forces",
+        std::vector<ExternallyAppliedSpatialForce<T>>(output_size()),
+        &ExternalSpatialForceMultiplexer<T>::ConcatenateForceInputs);
+  }
+
+  template <typename U>
+  explicit ExternalSpatialForceMultiplexer(
+      const ExternalSpatialForceMultiplexer<U>& other)
+      : ExternalSpatialForceMultiplexer<T>(std::vector<unsigned int>(
+            other.input_sizes_.begin(), other.input_sizes_.end())) {}
+
+  const systems::OutputPort<T>& get_spatial_forces_output_port() const {
+    return this->get_output_port(0);
   }
 };
 }  // namespace multibody

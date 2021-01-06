@@ -20,19 +20,23 @@ drake_cc_library(
 drake_cc_library(
     name = "external_spatial_force_multiplexer",
     hdrs = ["external_spatial_force_multiplexer.h"],
+    srcs = ["external_spatial_force_multiplexer.cc"],
     deps = ["//multibody/plant:plant"],
 )
 
 drake_cc_library(
-    name = "make_tailsitter_plant",
+    name = "tailsitter_plant",
     srcs = [
-        "make_tailsitter_plant.h",
-        "tailsitter_parameters.h"
+        "tailsitter_plant.cc"
     ],
+    hdrs = ["tailsitter_plant.h", 
+        "tailsitter_parameters.h"],
     deps = [
         ":external_spatial_force_multiplexer",
         ":flat_wing",
         "//multibody/plant:plant",
+        "//systems/primitives:demultiplexer",
+        "//systems/primitives:linear_system",
     ],
 )
 
@@ -41,12 +45,13 @@ drake_cc_binary(
     srcs = ["hover_tailsitter.cc"],
     deps = [
         ":flat_wing",
-        ":make_tailsitter_plant",
+        ":tailsitter_plant",
         "//geometry:geometry_visualization",
         "//geometry:drake_visualizer",
         "//systems/analysis:simulator",
         "//systems/framework:diagram",
         "//systems/primitives:constant_vector_source",
+        "//systems/controllers:linear_quadratic_regulator",
         "@gflags",
     ],
 )
@@ -55,7 +60,7 @@ drake_cc_binary(
     name = "symbolic_tailsitter",
     srcs = ["symbolic_tailsitter.cc"],
     deps = [
-        ":make_tailsitter_plant",
+        ":tailsitter_plant",
         "@gflags",
     ],
 )
